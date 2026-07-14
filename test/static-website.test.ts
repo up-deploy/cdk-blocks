@@ -2,7 +2,7 @@ import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { StaticWebsiteStack } from "../blocks/static-website/static-website-stack";
 
-describe("static-website block", () => {
+describe("static-website block (dev/testing profile: S3 website hosting, no CloudFront)", () => {
   const app = new App();
   const stack = new StaticWebsiteStack(app, "upp-static-website-test-dev", {
     instance: "test",
@@ -10,39 +10,31 @@ describe("static-website block", () => {
   });
   const template = Template.fromStack(stack);
 
-  test("bucket blocks all public access", () => {
+  test("bucket has website hosting enabled", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      PublicAccessBlockConfiguration: {
-        BlockPublicAcls: true,
-        BlockPublicPolicy: true,
-        IgnorePublicAcls: true,
-        RestrictPublicBuckets: true,
+      WebsiteConfiguration: {
+        IndexDocument: "index.html",
+        ErrorDocument: "error.html",
       },
     });
   });
 
-  test("bucket policy enforces SSL", () => {
+  test("content is publicly readable via bucket policy (website endpoint)", () => {
     template.hasResourceProperties("AWS::S3::BucketPolicy", {
       PolicyDocument: {
         Statement: Match.arrayWith([
           Match.objectLike({
-            Action: "s3:*",
-            Effect: "Deny",
-            Condition: { Bool: { "aws:SecureTransport": "false" } },
+            Action: "s3:GetObject",
+            Effect: "Allow",
+            Principal: { AWS: "*" },
           }),
         ]),
       },
     });
   });
 
-  test("serves through CloudFront with Origin Access Control", () => {
-    template.resourceCountIs("AWS::CloudFront::Distribution", 1);
-    template.resourceCountIs("AWS::CloudFront::OriginAccessControl", 1);
-    template.hasResourceProperties("AWS::CloudFront::Distribution", {
-      DistributionConfig: {
-        DefaultCacheBehavior: { ViewerProtocolPolicy: "redirect-to-https" },
-      },
-    });
+  test("no CloudFront in the dev/testing profile", () => {
+    template.resourceCountIs("AWS::CloudFront::Distribution", 0);
   });
 
   test("declares the outputs the catalog promises", () => {

@@ -16,7 +16,7 @@ A new tag here changes nothing on the platform until a catalog PR in `up-platfor
 
 | Block | Entry | What it deploys |
 |-------|-------|-----------------|
-| [`static-website`](blocks/static-website/) | `bin/static-website.ts` | Private S3 bucket + CloudFront (OAC), SSL-enforced |
+| [`static-website`](blocks/static-website/) | `bin/static-website.ts` | S3 website hosting (dev/testing profile — CloudFront/HTTPS variant planned as the `stable` upgrade) |
 
 ## The block contract
 
