@@ -16,7 +16,7 @@ A new tag here changes nothing on the platform until a catalog PR in `up-platfor
 
 | Block | Entry | What it deploys |
 |-------|-------|-----------------|
-| [`static-website`](blocks/static-website/) | `bin/static-website.ts` | S3 website hosting (dev/testing profile — CloudFront/HTTPS variant planned as the `stable` upgrade) |
+| [`s3`](blocks/s3/) | `bin/s3.ts` | Private, secure-by-default S3 bucket (public access blocked, SSL-only, encrypted, clean destroy) |
 
 ## The block contract
 
@@ -34,7 +34,7 @@ Every block in this repo must:
 ```bash
 npm install
 npm test
-npm run synth:static-website -- -c instance=demo -c env=dev   # full synth, no AWS credentials needed
+npm run synth:s3 -- -c instance=demo -c env=dev   # full synth, no AWS credentials needed
 ```
 
 ## Releasing

@@ -6,7 +6,7 @@
   "scripts": {
     "build": "tsc --noEmit",
     "test": "jest",
-    "synth:static-website": "cdk synth -a \"npx ts-node bin/static-website.ts\""
+    "synth:s3": "cdk synth -a \"npx ts-node bin/s3.ts\""
   },
   "license": "Apache-2.0",
   "devDependencies": {
