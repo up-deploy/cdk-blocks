@@ -1,0 +1,30 @@
+{
+  "name": "cdk-blocks",
+  "version": "0.1.0",
+  "description": "CDK building blocks for up-platform — one deployable infrastructure block per entry, consumed at pinned tags",
+  "private": true,
+  "scripts": {
+    "build": "tsc --noEmit",
+    "test": "jest",
+    "synth:static-website": "cdk synth -a \"npx ts-node bin/static-website.ts\""
+  },
+  "license": "Apache-2.0",
+  "devDependencies": {
+    "@types/jest": "^29.5.12",
+    "@types/node": "^20.14.0",
+    "aws-cdk": "^2.1000.0",
+    "jest": "^29.7.0",
+    "ts-jest": "^29.1.4",
+    "ts-node": "^10.9.2",
+    "typescript": "^5.4.5"
+  },
+  "dependencies": {
+    "aws-cdk-lib": "^2.189.1",
+    "constructs": "^10.5.1"
+  },
+  "jest": {
+    "preset": "ts-jest",
+    "testEnvironment": "node",
+    "testMatch": ["**/test/**/*.test.ts"]
+  }
+}

@@ -1,0 +1,10 @@
+node_modules/
+cdk.out/
+dist/
+*.js
+!jest.config.js
+*.d.ts
+.DS_Store
+.env
+.env.*
+!.env.example
