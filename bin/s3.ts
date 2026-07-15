@@ -1,6 +1,6 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { StaticWebsiteStack } from "../blocks/static-website/static-website-stack";
+import { S3BucketStack } from "../blocks/s3/s3-stack";
 
 const INSTANCE_PATTERN = /^[a-z][a-z0-9-]{2,20}$/;
 
@@ -15,7 +15,7 @@ if (!instance || !INSTANCE_PATTERN.test(instance)) {
   );
 }
 
-const stack = new StaticWebsiteStack(app, `upp-static-website-${instance}-${environment}`, {
+const stack = new S3BucketStack(app, `upp-s3-${instance}-${environment}`, {
   instance,
   environment,
 });
@@ -25,5 +25,5 @@ cdk.Tags.of(stack).add("company", "upstood");
 cdk.Tags.of(stack).add("appId", "upp");
 cdk.Tags.of(stack).add("environment", environment);
 cdk.Tags.of(stack).add("owner", "aleks");
-cdk.Tags.of(stack).add("upp:component", "static-website");
+cdk.Tags.of(stack).add("upp:component", "s3");
 cdk.Tags.of(stack).add("upp:instance", instance);
