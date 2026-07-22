@@ -7,7 +7,8 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   const stack = new S3BucketStack(app, "up-s3-test-dev", {
     environment: "dev",
     appId: "0asd3",
-    companyId: "up"
+    companyId: "up",
+    cfg: {}
   });
   const template = Template.fromStack(stack);
 
