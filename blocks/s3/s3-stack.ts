@@ -18,7 +18,7 @@ export class S3BucketStack extends Stack {
   constructor(scope: Construct, id: string, props: S3BucketStackProps) {
     super(scope, id, props);
 
-    const bucketName = props.companyId + "-s3-" + "-" + props.appId + "-" + props.environment + "-01"
+    const bucketName = props.companyId + "-s3-" + props.appId + "-" + props.environment + "-01"
 
     this.bucket = new s3.Bucket(this, "Bucket", {
       bucketName: bucketName,
@@ -26,7 +26,6 @@ export class S3BucketStack extends Stack {
       enforceSSL: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: props.cfg.retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-      autoDeleteObjects: true,
     });
 
     
