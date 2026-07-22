@@ -6,21 +6,25 @@ export interface S3BucketStackProps extends StackProps {
   readonly appId: string
   readonly environment: string
   readonly companyId: string
+  cfg: {
+    readonly enforceSSL?:boolean
+    readonly retain?:boolean
+  }
 }
+
+
 
 export class S3BucketStack extends Stack {
   public readonly bucket: s3.Bucket;
-
-
   constructor(scope: Construct, id: string, props: S3BucketStackProps) {
     super(scope, id, props);
 
-    const bucketName = props.companyId + "-s3-" + props.appId + "-" + props.environment + "-01"
+    const bucketName = props.companyId + "-s3-" + "-" + props.appId + "-" + props.environment + "-01"
 
     this.bucket = new s3.Bucket(this, "Bucket", {
       bucketName: bucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: true,
+      enforceSSL: props.cfg.enforceSSL ?? true,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: RemovalPolicy.DESTROY,
       autoDeleteObjects: true,

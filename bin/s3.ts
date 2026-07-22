@@ -4,11 +4,7 @@ import { S3BucketStack } from "../blocks/s3/s3-stack";
 
 
 const ACCOUNT_PATTERN = /^\d{12}$/;
-
-
 const app = new cdk.App();
-
-
 
 function requireParam(name: string, value?: string): string {
   if (!value || value.trim() === "") {
@@ -22,7 +18,9 @@ const account = requireParam("AWS Account", app.node.tryGetContext("account"));
 const region = requireParam("Region", app.node.tryGetContext("region"));
 const environment = requireParam("Environment", app.node.tryGetContext("env"));
 const appId = requireParam("App Id", app.node.tryGetContext("appId"));
-const companyId = (app.node.tryGetContext("companyId") as string | undefined) ?? "up";
+const companyId = requireParam("Company Id", app.node.tryGetContext("companyId"));
+const cfg = JSON.parse(app.node.tryGetContext("blockConfig") ?? "{}");
+
 
 if (!account || !ACCOUNT_PATTERN.test(account)) {
   throw new Error(
@@ -32,6 +30,6 @@ if (!account || !ACCOUNT_PATTERN.test(account)) {
 
 
 new S3BucketStack(app, "S3", { 
-  env: { account, region }, companyId, appId, environment
+  env: { account, region }, companyId, appId, environment, cfg
 });
 
