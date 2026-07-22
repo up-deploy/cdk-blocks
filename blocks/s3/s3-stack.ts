@@ -7,7 +7,6 @@ export interface S3BucketStackProps extends StackProps {
   readonly environment: string
   readonly companyId: string
   cfg: {
-    readonly enforceSSL?:boolean
     readonly retain?:boolean
   }
 }
@@ -24,9 +23,9 @@ export class S3BucketStack extends Stack {
     this.bucket = new s3.Bucket(this, "Bucket", {
       bucketName: bucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
-      enforceSSL: props.cfg.enforceSSL ?? true,
+      enforceSSL: true,
       encryption: s3.BucketEncryption.S3_MANAGED,
-      removalPolicy: RemovalPolicy.DESTROY,
+      removalPolicy: props.cfg.retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
       autoDeleteObjects: true,
     });
 
