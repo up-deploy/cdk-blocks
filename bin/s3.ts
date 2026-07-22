@@ -1,6 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { S3BucketStack } from "../blocks/s3/s3-stack";
+import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
 
 const ACCOUNT_PATTERN = /^\d{12}$/;
 const app = new cdk.App();
@@ -18,28 +19,31 @@ const region = requireParam("Region", app.node.tryGetContext("region"));
 const environment = requireParam("Environment", app.node.tryGetContext("env"));
 const appId = requireParam("App Id", app.node.tryGetContext("appId"));
 const companyId = requireParam("Company Id", app.node.tryGetContext("companyId"));
+const blockRef = requireParam("Block Ref", app.node.tryGetContext("blockRef"));
 const cfg = JSON.parse(app.node.tryGetContext("blockConfig") ?? "{}");
+const extra = JSON.parse(app.node.tryGetContext("tags") ?? "{}");
 
 
-if (!account || !ACCOUNT_PATTERN.test(account)) {
-  throw new Error(
-    `AWS Account not set`,
-  );  
+// requireParam already guarantees presence, so only the shape is left to check.
+if (!ACCOUNT_PATTERN.test(account)) {
+  throw new Error(`AWS Account '${account}' is not a 12-digit account id`);
 }
 
 new S3BucketStack(app, "S3", { 
   env: { account, region }, companyId, appId, environment, cfg
 });
 
-cdk.Tags.of(app).add("upp:managed", "true");
-cdk.Tags.of(app).add("upp:appId", appId);
-cdk.Tags.of(app).add("upp:env", environment);
-cdk.Tags.of(app).add("upp:block", "s3");
-cdk.Tags.of(app).add("upp:block", "s3");
-cdk.Tags.of(app).add("upp:ref", "s3");
+applyPlatformTags(app, {
+  companyId,
+  appId,
+  environment,
+  block: "s3",
+  blockRef,
+  extra,
+});
 
-const tags = JSON.parse(app.node.tryGetContext("tags") ?? "{}");
-
-for (const [key, value] of Object.entries(tags)) {
-  cdk.Tags.of(app).add(key, String(value));
-}
+// READONLY (1000) so it runs after the tag aspects, which register at DEFAULT (500) because
+// cdk.json sets no feature flags. See lib/platform-tags.ts.
+cdk.Aspects.of(app).add(new RequiredTagsAspect(companyId), {
+  priority: cdk.AspectPriority.READONLY,
+});
