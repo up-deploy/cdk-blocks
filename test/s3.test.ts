@@ -4,9 +4,10 @@ import { S3BucketStack } from "../blocks/s3/s3-stack";
 
 describe("s3 block (private, secure-by-default bucket)", () => {
   const app = new App();
-  const stack = new S3BucketStack(app, "upp-s3-test-dev", {
-    instance: "test",
+  const stack = new S3BucketStack(app, "up-s3-test-dev", {
     environment: "dev",
+    appId: "0asd3",
+    companyId: "up"
   });
   const template = Template.fromStack(stack);
 

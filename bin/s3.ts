@@ -2,28 +2,36 @@
 import * as cdk from "aws-cdk-lib";
 import { S3BucketStack } from "../blocks/s3/s3-stack";
 
-const INSTANCE_PATTERN = /^[a-z][a-z0-9-]{2,20}$/;
+
+const ACCOUNT_PATTERN = /^\d{12}$/;
+
 
 const app = new cdk.App();
 
-const instance = app.node.tryGetContext("instance") as string | undefined;
-const environment = (app.node.tryGetContext("env") as string | undefined) ?? "dev";
 
-if (!instance || !INSTANCE_PATTERN.test(instance)) {
-  throw new Error(
-    `Context 'instance' is required and must match ${INSTANCE_PATTERN} — pass it with: -c instance=<name>`,
-  );
+
+function requireParam(name: string, value?: string): string {
+  if (!value || value.trim() === "") {
+    throw new Error(`${name} not set`);
+  }
+  return value;
 }
 
-const stack = new S3BucketStack(app, `upp-s3-${instance}-${environment}`, {
-  instance,
-  environment,
+
+const account = requireParam("AWS Account", app.node.tryGetContext("account"));
+const region = requireParam("Region", app.node.tryGetContext("region"));
+const environment = requireParam("Environment", app.node.tryGetContext("env"));
+const appId = requireParam("App Id", app.node.tryGetContext("appId"));
+const companyId = (app.node.tryGetContext("companyId") as string | undefined) ?? "up";
+
+if (!account || !ACCOUNT_PATTERN.test(account)) {
+  throw new Error(
+    `AWS Account not set`,
+  );  
+}
+
+
+new S3BucketStack(app, "S3", { 
+  env: { account, region }, companyId, appId, environment
 });
 
-// Standard platform tags — the contract every block satisfies.
-cdk.Tags.of(stack).add("company", "upstood");
-cdk.Tags.of(stack).add("appId", "upp");
-cdk.Tags.of(stack).add("environment", environment);
-cdk.Tags.of(stack).add("owner", "aleks");
-cdk.Tags.of(stack).add("upp:component", "s3");
-cdk.Tags.of(stack).add("upp:instance", instance);
