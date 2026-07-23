@@ -48,8 +48,6 @@ applyPlatformTags(app, {
   extra,
 });
 
-// READONLY (1000) so it runs after the tag aspects, which register at DEFAULT (500) because
-// cdk.json sets no feature flags. See lib/platform-tags.ts.
 cdk.Aspects.of(app).add(new RequiredTagsAspect(companyId), {
   priority: cdk.AspectPriority.READONLY,
 });
