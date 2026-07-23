@@ -20,6 +20,7 @@ Do not implement several steps ahead, and do not write code he has not asked for
 | `bin/<name>.ts` | the block's entrypoint — reads context, composes the name, applies tags, registers cdk-nag |
 | `blocks/<name>/` | the stack and its constructs — where the policy fence lives |
 | `lib/platform-tags.ts` | `applyPlatformTags()` + `RequiredTagsAspect`, shared by every block |
+| `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and rejects keys the block does not declare |
 | `test/<name>.test.ts` | `Template.fromStack()` assertions, incl. the `POLICY:`-prefixed ones |
 | `.github/workflows/ci.yml` | `tsc` + tests on every PR and on `main` |
 
@@ -55,9 +56,12 @@ A block is a unit of *release*, so its public surface has to be stable and small
   block code with no override prop. A policy that is a prop with a default is a suggestion.
 - **The block composes its own resource name** — `<companyId>-<block>-<appId>-<env>-01`. The caller
   supplies `appId` only. Naming is a platform guarantee that tags and cost attribution rely on.
-- **Reject unknown `blockConfig` keys.** A typo'd key would otherwise be silently ignored. The
-  TypeScript interface is the single definition of what is accepted; it is never mirrored into
-  the catalog.
+- **Unknown `blockConfig` keys are rejected** by `parseBlockConfig()`, fed from the block's
+  `<BLOCK>_CONFIG_KEYS`. Without it a typo'd key is silently ignored: `{"retian":true}` used to
+  synthesize `DeletionPolicy: Delete` and exit 0 while the environment file asked for the bucket
+  to be retained. Keep the key list beside the config interface. If they drift they drift safely —
+  a key in the interface but missing from the list is rejected at synth, which fails loudly on
+  first use. The accepted set is never mirrored into the catalog.
 
 ## Changing a block, or adding one
 
