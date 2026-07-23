@@ -1,0 +1,51 @@
+name: CI
+
+# Two triggers, two different questions.
+#   pull_request — "is this change safe to merge?"  This is the run a branch
+#                  ruleset names as a required status check.
+#   push:main    — "is main actually green right now?"  On 2026-07-23 main sat
+#                  broken for half an hour and nothing said so, because the
+#                  catalog pins a TAG: a broken main cannot reach a request, so
+#                  no request ever goes red to tell you. This trigger is the
+#                  only thing that would have.
+# push is scoped to main deliberately; unscoped, every branch push runs the
+# suite twice — once for the push and once for the PR.
+on:
+    pull_request:
+    push:
+        branches: [main]
+
+# This job reads code and runs tests; it writes nothing. The default
+# GITHUB_TOKEN scope depends on an org setting and is usually broader.
+permissions:
+    contents: read
+
+jobs:
+    # THE JOB NAME IS A CONTRACT. It is the literal string a branch ruleset
+    # names in required_status_checks. Rename it and the ruleset keeps waiting
+    # on a check that no longer reports — it never goes green and never goes
+    # red. Same failure class as a control that leaves no trace (see D-005).
+    build:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+
+            - name: setup node
+              uses: actions/setup-node@v7
+              with:
+                node-version: 20
+                cache: npm
+
+            - name: install dependencies
+              run: npm ci
+
+            # `npm run build` is `tsc --noEmit`. On 2026-07-23 main did not
+            # compile — this step is what catches that.
+            - name: typecheck
+              run: npm run build
+
+            # Includes the POLICY:-prefixed assertions, which are the only
+            # thing guarding the class-3 policy fence (private bucket, SSL-only,
+            # encryption), and the cdk-nag compliance-gate suite.
+            - name: test
+              run: npm test
