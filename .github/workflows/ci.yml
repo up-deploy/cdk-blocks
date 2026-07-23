@@ -3,17 +3,23 @@ name: CI
 # Two triggers, two different questions.
 #   pull_request — "is this change safe to merge?"  This is the run a branch
 #                  ruleset names as a required status check.
-#   push:main    — "is main actually green right now?"  On 2026-07-23 main sat
-#                  broken for half an hour and nothing said so, because the
+#   push         — "is the branch actually green right now?"  On 2026-07-23 main
+#                  sat broken for half an hour and nothing said so, because the
 #                  catalog pins a TAG: a broken main cannot reach a request, so
 #                  no request ever goes red to tell you. This trigger is the
 #                  only thing that would have.
-# push is scoped to main deliberately; unscoped, every branch push runs the
+#
+#                  develop is listed for the same reason and matters MORE: since
+#                  the Gitflow move it is the default branch and where every
+#                  feature lands, while main only changes at a release. A trigger
+#                  scoped to main alone would watch the quiet branch and ignore
+#                  the busy one.
+# push is scoped to these two deliberately; unscoped, every branch push runs the
 # suite twice — once for the push and once for the PR.
 on:
     pull_request:
     push:
-        branches: [main]
+        branches: [main, develop]
 
 # This job reads code and runs tests; it writes nothing. The default
 # GITHUB_TOKEN scope depends on an org setting and is usually broader.

@@ -1,0 +1,117 @@
+name: release
+
+# Step 2 of the Gitflow release (see Wiki: git-branch-commit-standard).
+# Cuts release/vX.Y.Z from develop and bumps the version. It deliberately does NOT
+# open the pull request.
+#
+# WHY NOT: a PR opened with the default GITHUB_TOKEN does not trigger `pull_request`
+# workflows — GitHub blocks that to prevent recursion. `build` would never run, the
+# required status check would never report, and the PR would be permanently unmergeable.
+# The alternative is a PAT stored in a PUBLIC repo, which is a long-lived credential
+# and a standing target. Opening the PR is one click; a leaked token is forever.
+on:
+    workflow_dispatch:
+        inputs:
+            bump:
+                description: which part of the version to increase
+                required: true
+                type: choice
+                options: [patch, minor, major]
+
+# The repo default is read-only. Only `contents` is raised, and only far enough to
+# push a branch. No `pull-requests` scope: this job must not be able to open one.
+permissions:
+    contents: write
+
+jobs:
+    cut:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                # Releases are always cut from develop, never from whatever ref the
+                # dispatch happened to run on.
+                ref: develop
+                # 0 = full history AND tags. The next version is derived from the
+                # latest tag, so a shallow clone would silently compute from v0.0.0.
+                fetch-depth: 0
+
+            - name: setup node
+              uses: actions/setup-node@v7
+              with:
+                node-version: 20
+                cache: npm
+
+            - name: refuse if develop has nothing to release
+              run: |
+                if [ "$(git rev-parse develop)" = "$(git rev-parse origin/main)" ]; then
+                  echo "::error::develop is identical to main — nothing to release."
+                  exit 1
+                fi
+
+            # The TAG is the source of truth for "what has been released", not
+            # package.json. On 2026-07-23 package.json said 0.1.0 while v0.2.0 was
+            # tagged and shipped — bumping from package.json would have re-issued
+            # 0.2.0. Syncing to the tag first makes that drift self-healing.
+            - name: compute the next version from the latest tag
+              env:
+                BUMP: ${{ inputs.bump }}
+              run: |
+                git fetch --tags --force
+                LATEST="$(git tag --sort=-v:refname | head -1)"
+                LATEST="${LATEST:-v0.0.0}"
+                echo "latest released tag: $LATEST"
+
+                # --allow-same-version: package.json may already equal the tag.
+                npm version --no-git-tag-version --allow-same-version "${LATEST#v}" >/dev/null
+                npm version --no-git-tag-version "$BUMP" >/dev/null
+
+                NEW="$(jq -r .version package.json)"
+                {
+                  echo "NEW_VERSION=$NEW"
+                  echo "NEW_TAG=v$NEW"
+                  echo "PREV_TAG=$LATEST"
+                } >> "$GITHUB_ENV"
+
+            - name: refuse if that version already exists
+              run: |
+                # Tags are immutable here (ruleset 19618738) — a wrong tag can only be
+                # superseded, never corrected. Fail before creating anything.
+                if git rev-parse -q --verify "refs/tags/$NEW_TAG" >/dev/null; then
+                  echo "::error::$NEW_TAG already exists and tags are immutable."
+                  exit 1
+                fi
+                if git ls-remote --exit-code --heads origin "release/$NEW_TAG" >/dev/null 2>&1; then
+                  echo "::error::branch release/$NEW_TAG already exists."
+                  exit 1
+                fi
+
+            - name: cut the release branch
+              run: |
+                git config user.name  "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                git checkout -b "release/$NEW_TAG"
+                git add package.json package-lock.json
+                git commit -m "chore: bump version to $NEW_VERSION"
+                git push origin "release/$NEW_TAG"
+
+            - name: what to do next
+              run: |
+                COMPARE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/main...release/${NEW_TAG}?expand=1"
+                {
+                  echo "### Release $NEW_TAG cut"
+                  echo ""
+                  echo "| | |"
+                  echo "|---|---|"
+                  echo "| previous | \`$PREV_TAG\` |"
+                  echo "| new | \`$NEW_TAG\` |"
+                  echo "| branch | \`release/$NEW_TAG\` |"
+                  echo ""
+                  echo "**[Open the release PR into \`main\`]($COMPARE)**"
+                  echo ""
+                  echo "Opening it yourself is what makes CI run — see the note at the top"
+                  echo "of \`release.yml\`. Merge it with a **merge commit, not a squash**:"
+                  echo "squashing breaks the merge-back into \`develop\` on every later release."
+                  echo ""
+                  echo "The tag and the merge-back branch are created automatically once it merges."
+                } >> "$GITHUB_STEP_SUMMARY"

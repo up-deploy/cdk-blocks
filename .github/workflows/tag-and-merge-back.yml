@@ -1,0 +1,106 @@
+name: tag and merge back
+
+# Steps 3 and 4 of the Gitflow release (see Wiki: git-branch-commit-standard).
+# Fires when anything lands on main — a release PR or a hotfix PR. It cuts the tag
+# and prepares the merge-back into develop.
+#
+# The merge-back is the step that punishes you later rather than now: a release whose
+# fixes never return to develop is silently reverted by the NEXT release. So this job
+# always leaves a visible branch to merge, even though it cannot open the PR itself
+# (same GITHUB_TOKEN limitation documented in release.yml).
+on:
+    push:
+        branches: [main]
+
+permissions:
+    contents: write
+
+jobs:
+    tag:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7
+              with:
+                fetch-depth: 0
+
+            # Not every push to main is a release — a docs fix merged straight to main
+            # has no new version. The version comes from package.json, which was
+            # reviewed in the release PR, rather than from a dispatch input: tags are
+            # immutable, so the value must be one a human already read.
+            - name: decide whether this push is a release
+              run: |
+                git fetch --tags --force
+                VERSION="$(jq -r .version package.json)"
+                TAG="v$VERSION"
+                echo "TAG=$TAG" >> "$GITHUB_ENV"
+
+                if git rev-parse -q --verify "refs/tags/$TAG" >/dev/null; then
+                  echo "$TAG already exists — this push was not a release."
+                  echo "IS_RELEASE=false" >> "$GITHUB_ENV"
+                else
+                  echo "IS_RELEASE=true" >> "$GITHUB_ENV"
+                fi
+
+            - name: cut the tag
+              if: env.IS_RELEASE == 'true'
+              run: |
+                git config user.name  "github-actions[bot]"
+                git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
+                # Annotated, so the tag records who cut it and when. Ruleset 19618738
+                # blocks update and deletion, so this is the only chance to get it right.
+                git tag -a "$TAG" -m "$TAG"
+                git push origin "$TAG"
+
+            # Even a release that merged cleanly leaves main ahead of develop, because
+            # the version bump commit lives only on main.
+            - name: prepare the merge-back into develop
+              if: env.IS_RELEASE == 'true'
+              run: |
+                if [ -z "$(git log --oneline origin/develop..origin/main)" ]; then
+                  echo "develop already contains main — no merge-back needed."
+                  echo "MERGE_BACK=none" >> "$GITHUB_ENV"
+                  exit 0
+                fi
+
+                BRANCH="chore/merge-back-$TAG"
+                if git ls-remote --exit-code --heads origin "$BRANCH" >/dev/null 2>&1; then
+                  echo "$BRANCH already exists."
+                else
+                  git checkout -b "$BRANCH" origin/main
+                  git push origin "$BRANCH"
+                fi
+                echo "MERGE_BACK=$BRANCH" >> "$GITHUB_ENV"
+
+            - name: summary
+              if: always()
+              run: |
+                {
+                  if [ "$IS_RELEASE" != "true" ]; then
+                    echo "### No release"
+                    echo ""
+                    echo "\`package.json\` is at \`${TAG#v}\`, which is already tagged."
+                    echo "Nothing to cut."
+                  else
+                    echo "### Released $TAG"
+                    echo ""
+                    echo "| | |"
+                    echo "|---|---|"
+                    echo "| tag | \`$TAG\` (immutable) |"
+                    echo "| commit | \`${GITHUB_SHA:0:7}\` |"
+                    echo ""
+                    if [ "$MERGE_BACK" = "none" ] || [ -z "$MERGE_BACK" ]; then
+                      echo "Develop is already up to date. No merge-back needed."
+                    else
+                      COMPARE="${GITHUB_SERVER_URL}/${GITHUB_REPOSITORY}/compare/develop...${MERGE_BACK}?expand=1"
+                      echo "**[Open the merge-back PR into \`develop\`]($COMPARE)**"
+                      echo ""
+                      echo "Do not skip it. Without it, everything in $TAG is reverted by the"
+                      echo "next release, and nothing will report an error when that happens."
+                    fi
+                    echo ""
+                    echo "#### This has shipped to nobody yet"
+                    echo ""
+                    echo "Consumers read the pin, not the tag. Bump \`catalog/blocks/s3.yaml\`"
+                    echo "in \`up-platform\` to \`ref: $TAG\` — that is the actual release."
+                  fi
+                } >> "$GITHUB_STEP_SUMMARY"
