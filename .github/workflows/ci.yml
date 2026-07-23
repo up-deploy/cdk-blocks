@@ -29,7 +29,6 @@ jobs:
         runs-on: ubuntu-latest
         steps:
             - uses: actions/checkout@v7
-
             - name: setup node
               uses: actions/setup-node@v7
               with:
@@ -49,3 +48,34 @@ jobs:
             # encryption), and the cdk-nag compliance-gate suite.
             - name: test
               run: npm test
+    scan:
+        runs-on: ubuntu-latest
+        steps:
+            - uses: actions/checkout@v7         
+            - name: setup node
+              uses: actions/setup-node@v7
+              with:
+                node-version: 20
+                cache: npm
+            - name: install dependencies
+              run: npm ci
+
+            # Runs the REAL entrypoint. cdk-nag runs only if bin/s3.ts still registers it.
+            # stderr (the compliance line) → a FILE, not a pipe: a pipe would report the
+            # pipe's exit code, not cdk's (your own runbook, step 3).
+            - name: synth via the block entrypoint
+              run: |
+                npx cdk synth -a "npx ts-node bin/s3.ts" \
+                  -c account=111111111111 -c region=eu-west-1 -c companyId=up \
+                  -c appId=ci00 -c env=dev -c blockRef=ci \
+                  -c blockConfig='{"retain":false,"logBucket":"ci-log-bucket"}' \
+                  -c tags='{}' \
+                  1>/dev/null 2>synth.log
+
+            # Fail closed: no compliance line = the gate is not wired, even though synth
+            # exited 0. This is the check the jest test cannot give you.
+            - name: verify the gate ran
+              run: |
+                grep "^compliance:" synth.log || true
+                grep -q "^compliance: pack=" synth.log \
+                  || { echo "::error::cdk-nag not registered in bin/s3.ts"; exit 1; }
