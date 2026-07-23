@@ -48,10 +48,13 @@ jobs:
             # encryption), and the cdk-nag compliance-gate suite.
             - name: test
               run: npm test
+    # Proves the ENTRYPOINT still wires the compliance gate — which the jest test cannot,
+    # because the test runs cdk-nag itself. Renders the same verdict panel as the platform's
+    # scan job. Inputs are CI placeholders: this scans the block, not a real request.
     scan:
         runs-on: ubuntu-latest
         steps:
-            - uses: actions/checkout@v7         
+            - uses: actions/checkout@v7
             - name: setup node
               uses: actions/setup-node@v7
               with:
@@ -60,10 +63,11 @@ jobs:
             - name: install dependencies
               run: npm ci
 
-            # Runs the REAL entrypoint. cdk-nag runs only if bin/s3.ts still registers it.
-            # stderr (the compliance line) → a FILE, not a pipe: a pipe would report the
-            # pipe's exit code, not cdk's (your own runbook, step 3).
+            # continue-on-error so a violation (synth exits 1) does not kill the job before
+            # the panel renders. The verdict is derived from the report below, not from this
+            # step's exit code — the report is the authority, as in the platform's scan.
             - name: synth via the block entrypoint
+              continue-on-error: true
               run: |
                 npx cdk synth -a "npx ts-node bin/s3.ts" \
                   -c account=111111111111 -c region=eu-west-1 -c companyId=up \
@@ -72,10 +76,65 @@ jobs:
                   -c tags='{}' \
                   1>/dev/null 2>synth.log
 
-            # Fail closed: no compliance line = the gate is not wired, even though synth
-            # exited 0. This is the check the jest test cannot give you.
-            - name: verify the gate ran
+            - name: scan
               run: |
-                grep "^compliance:" synth.log || true
-                grep -q "^compliance: pack=" synth.log \
-                  || { echo "::error::cdk-nag not registered in bin/s3.ts"; exit 1; }
+                REPORT="cdk.out/validation-report.json"
+                LOG="synth.log"
+                verdict="compliant"
+                detail=""
+
+                # 1. PROVABLE: a clean cdk-nag run writes `pluginReports: []`, so the block
+                #    printing its own pack line is the only evidence the control executed.
+                if [ ! -f "$LOG" ] || ! grep -q "^compliance: pack=" "$LOG"; then
+                  verdict="not verified"
+                  detail="No \`compliance: pack=\` line — cdk-nag is not registered in bin/s3.ts."
+                # 2. EXISTS: absent report means the synth died before validation.
+                elif [ ! -f "$REPORT" ]; then
+                  verdict="not verified"
+                  detail="No validation report — the synth did not reach validation."
+                # 3. Any violation at any severity (cdk-nag v3 fails synth on warnings too).
+                elif [ "$(jq '[.pluginReports[].violations[]] | length' "$REPORT")" -gt 0 ]; then
+                  verdict="violations"
+                  detail="$(jq -r '.pluginReports[].violations[] | "- `\(.ruleName)` [\(.severity)] — \(.description)"' "$REPORT")"
+                fi
+
+                {
+                  echo "### Compliance scan"
+                  echo ""
+                  echo "| | |"
+                  echo "|---|---|"
+                  echo "| verdict | **$verdict** |"
+                  echo "| block | \`s3\` |"
+                  echo "| source | \`${GITHUB_REPOSITORY}@${GITHUB_SHA:0:7}\` |"
+                  echo "| scan | block self-scan (CI placeholder inputs) |"
+                  echo ""
+                  echo "#### Rule pack"
+                  echo ""
+                  echo '```'
+                  grep -h "^compliance: " "$LOG" 2>/dev/null || echo "none recorded"
+                  echo '```'
+                  echo ""
+                  if [ -n "$detail" ]; then
+                    echo "#### Findings"
+                    echo ""
+                    echo "$detail"
+                    echo ""
+                  fi
+                  echo "#### Exceptions in force"
+                  echo ""
+                  if compgen -G "cdk.out/*.template.json" > /dev/null; then
+                    jq -r '.Resources | to_entries[]
+                           | select(.value.Metadata.cdk_nag)
+                           | .value.Metadata.cdk_nag.rules_to_suppress[]
+                           | "- `\(.id)` — \(.reason)"' cdk.out/*.template.json \
+                      | sort -u | grep . || echo "- none"
+                  else
+                    echo "- no template emitted"
+                  fi
+                } >> "$GITHUB_STEP_SUMMARY"
+
+                if [ "$verdict" != "compliant" ]; then
+                  echo "::error::Compliance scan: $verdict"
+                  exit 1
+                fi
+                echo "compliant — no violations, pack execution verified"
