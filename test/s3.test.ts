@@ -2,6 +2,8 @@ import { App, AspectPriority, Aspects } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { S3BucketStack } from "../blocks/s3/s3-stack";
 import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
+import { AwsSolutionsChecks } from "cdk-nag";
+
 
 describe("s3 block (private, secure-by-default bucket)", () => {
   const app = new App();
@@ -177,4 +179,24 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       Annotations.fromStack(stack).findError("*", Match.stringLikeRegexp("Missing required tag")),
     ).toHaveLength(0);
   });
+});
+
+
+
+describe("compliance gate (cdk-nag AwsSolutions)", () => {
+  test("POLICY: the s3 block has no AwsSolutions violations", () => {
+    const app = new App();
+    const stack = new S3BucketStack(app, "S3", {
+      env: { account: "012514678082", region: "eu-west-1" },
+      companyId: "up",
+      appId: "a231",
+      environment: "dev",
+      cfg: {},
+    });
+
+    const report = new AwsSolutionsChecks(app).validateScope(stack);
+
+    expect(
+      report.violations.map((v) => `${v.ruleName}: ${v.description}`)
+    ).toEqual([]);  });
 });

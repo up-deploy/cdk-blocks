@@ -2,6 +2,9 @@
 import * as cdk from "aws-cdk-lib";
 import { S3BucketStack } from "../blocks/s3/s3-stack";
 import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
+import { AwsSolutionsChecks } from "cdk-nag";
+
+
 
 const ACCOUNT_PATTERN = /^\d{12}$/;
 const app = new cdk.App();
@@ -47,3 +50,5 @@ applyPlatformTags(app, {
 cdk.Aspects.of(app).add(new RequiredTagsAspect(companyId), {
   priority: cdk.AspectPriority.READONLY,
 });
+
+cdk.Validations.of(app).addPlugins(new AwsSolutionsChecks(app, { verbose: true }));
