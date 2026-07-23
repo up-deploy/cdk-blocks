@@ -2,7 +2,7 @@ import { App, AspectPriority, Aspects } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
 import { S3BucketStack, S3ConfigSchema } from "../blocks/s3/s3-stack";
 import { parseBlockConfig } from "../lib/block-config";
-import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
+import { applyPlatformTags, parseExtraTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { AwsSolutionsChecks } from "cdk-nag";
 
 
@@ -67,6 +67,65 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       BucketName: "up-s3-0asd3-dev-01",
     });
+  });
+
+  // POLICY: versioning is class-3 — overwrite/delete protection is not a choice the
+  // environment file gets to make. AwsSolutions has no versioning rule, so this test
+  // is the only fence.
+  test("POLICY: bucket is versioned", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      VersioningConfiguration: { Status: "Enabled" },
+    });
+  });
+
+  // POLICY: ACLs stay disabled. BucketOwnerEnforced is the modern S3 default, but a
+  // default is a suggestion — stating it is what makes it policy.
+  test("POLICY: object ownership is BucketOwnerEnforced (ACLs disabled)", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      OwnershipControls: {
+        Rules: [{ ObjectOwnership: "BucketOwnerEnforced" }],
+      },
+    });
+  });
+
+  // Cost fences, not data policy: current objects are never expired.
+  test("lifecycle aborts stale multipart uploads and expires noncurrent versions", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LifecycleConfiguration: {
+        Rules: Match.arrayWith([
+          Match.objectLike({
+            AbortIncompleteMultipartUpload: { DaysAfterInitiation: 7 },
+            NoncurrentVersionExpiration: { NoncurrentDays: 90 },
+            Status: "Enabled",
+          }),
+        ]),
+      },
+    });
+  });
+
+  // One central log bucket serves every block instance; without a per-bucket prefix
+  // the destination is one interleaved stream.
+  test("access logs are prefixed with the bucket's own name", () => {
+    template.hasResourceProperties("AWS::S3::Bucket", {
+      LoggingConfiguration: Match.objectLike({
+        LogFilePrefix: "up-s3-0asd3-dev-01/",
+      }),
+    });
+  });
+
+  // The block composes the name, so the block owns its legality. S3 caps names at
+  // 63 chars and CloudFormation only notices at deploy time.
+  test("a composed name over 63 characters fails at synth, not at deploy", () => {
+    const longApp = new App();
+    expect(
+      () =>
+        new S3BucketStack(longApp, "up-s3-too-long", {
+          environment: "dev",
+          appId: "a".repeat(60),
+          companyId: "up",
+          cfg: {},
+        }),
+    ).toThrow(/not a legal S3 name/);
   });
 
   // POLICY: retain is class-2 config, so prod and dev run the SAME block code and differ only in
@@ -150,6 +209,16 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       expect(() => tagged({ [key]: "x" })).toThrow(/Invalid tag key/);
     },
   );
+
+  // AWS caps tag values at 256 chars and rejects the write at DEPLOY time; an
+  // empty value is a key that tags nothing. Both must die at synth instead.
+  test("rejects an empty tag value", () => {
+    expect(() => tagged({ owner: "" })).toThrow(/Invalid value for tag key 'owner'/);
+  });
+
+  test("rejects a tag value over 256 characters", () => {
+    expect(() => tagged({ owner: "x".repeat(257) })).toThrow(/1-256 characters/);
+  });
 
   test("RequiredTagsAspect reports an error when a required tag is missing", () => {
     const app = new App();
@@ -249,5 +318,49 @@ describe("blockConfig validation (lib/block-config.ts)", () => {
     ["a number", "7"],
   ])("JSON %s is rejected", (_label, raw) => {
     expect(() => parse(raw)).toThrow(/[Ee]xpected object/);
+  });
+
+  // fromBucketName() validates nothing at synth, so before the shape check an empty
+  // string or an illegal name satisfied "logging is configured" while pointing at a
+  // destination that can never receive a log line.
+  test("POLICY: an empty logBucket is rejected, not treated as configured", () => {
+    expect(() => parse('{"logBucket":""}')).toThrow(/valid S3 bucket name/);
+  });
+
+  test("a logBucket that is not a legal S3 name is rejected", () => {
+    expect(() => parse('{"logBucket":"Not_A_Bucket"}')).toThrow(/valid S3 bucket name/);
+  });
+
+  test("a legal logBucket name is accepted", () => {
+    expect(parse('{"logBucket":"up-s3-logs-dev-01"}')).toEqual({
+      logBucket: "up-s3-logs-dev-01",
+    });
+  });
+});
+
+
+describe("tags context parsing (lib/platform-tags.ts)", () => {
+  // The `-c tags` blob travels through yq, GITHUB_OUTPUT and a workflow input
+  // before it reaches the block. A bare JSON.parse threw a SyntaxError naming
+  // nothing about where the value came from — inconsistent with parseBlockConfig,
+  // which this now mirrors.
+  test("absent tags are an empty object, not an error", () => {
+    expect(parseExtraTags(undefined)).toEqual({});
+  });
+
+  test("a valid object parses", () => {
+    expect(parseExtraTags('{"owner":"upstood"}')).toEqual({ owner: "upstood" });
+  });
+
+  test("malformed JSON reports the raw value it was given", () => {
+    expect(() => parseExtraTags("{not json")).toThrow(/not valid JSON.*Received: \{not json/s);
+  });
+
+  test.each([
+    ["null", "null"],
+    ["an array", '["owner"]'],
+    ["a string", '"owner"'],
+  ])("JSON %s is rejected", (_label, raw) => {
+    expect(() => parseExtraTags(raw)).toThrow(/must be a JSON object/);
   });
 });

@@ -19,6 +19,7 @@ permissions:
 jobs:
     naming:
         runs-on: ubuntu-latest
+        timeout-minutes: 5
         steps:
             # SECURITY: every value below arrives through `env:`, never interpolated into
             # the script with ${{ }}. A PR title is attacker-controlled on a public repo —
