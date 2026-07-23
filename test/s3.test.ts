@@ -1,6 +1,7 @@
 import { App, AspectPriority, Aspects } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
-import { S3BucketStack } from "../blocks/s3/s3-stack";
+import { S3BucketStack, S3Config, S3_CONFIG_KEYS } from "../blocks/s3/s3-stack";
+import { parseBlockConfig } from "../lib/block-config";
 import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { AwsSolutionsChecks } from "cdk-nag";
 
@@ -199,4 +200,49 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
     expect(
       report.violations.map((v) => `${v.ruleName}: ${v.description}`)
     ).toEqual([]);  });
+});
+
+
+describe("blockConfig validation (lib/block-config.ts)", () => {
+  // Class-2 config reaches the block as one JSON string, and until 2026-07-23 an
+  // unrecognised key was silently dropped: `{"retian":true}` synthesized a bucket
+  // with DeletionPolicy: Delete and exited 0, while the environment file said the
+  // bucket should be retained. In prod that is data loss from a transposed letter.
+  const parse = (raw: string | undefined) =>
+    parseBlockConfig<S3Config>(raw, S3_CONFIG_KEYS, "s3");
+
+  test("POLICY: a misspelled key is rejected, not ignored", () => {
+    expect(() => parse('{"retian":true}')).toThrow(/Unknown blockConfig key\(s\).*retian/);
+  });
+
+  test("the error names what the block does accept", () => {
+    expect(() => parse('{"retian":true}')).toThrow(/accepts: retain/);
+  });
+
+  test("every unknown key is reported, not just the first", () => {
+    expect(() => parse('{"retian":true,"versionned":true}')).toThrow(/retian, versionned/);
+  });
+
+  test("a declared key is accepted and keeps its real boolean type", () => {
+    expect(parse('{"retain":false}')).toEqual({ retain: false });
+  });
+
+  test("absent config is an empty object, not an error", () => {
+    expect(parse(undefined)).toEqual({});
+  });
+
+  test("malformed JSON reports the raw value it was given", () => {
+    expect(() => parse("{not json")).toThrow(/is not valid JSON.*Received: \{not json/s);
+  });
+
+  // typeof null === "object" and an array is an object too, so both would pass a
+  // naive check and then read as empty config — the silent failure all over again.
+  test.each([
+    ["null", "null"],
+    ["an array", "[]"],
+    ["a string", '"retain"'],
+    ["a number", "7"],
+  ])("JSON %s is rejected", (_label, raw) => {
+    expect(() => parse(raw)).toThrow(/must be a JSON object/);
+  });
 });

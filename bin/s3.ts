@@ -1,7 +1,8 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
-import { S3BucketStack } from "../blocks/s3/s3-stack";
+import { S3BucketStack, S3Config, S3_CONFIG_KEYS } from "../blocks/s3/s3-stack";
 import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
+import { parseBlockConfig } from "../lib/block-config";
 import { AwsSolutionsChecks } from "cdk-nag";
 
 const ACCOUNT_PATTERN = /^\d{12}$/;
@@ -21,7 +22,11 @@ const environment = requireParam("Environment", app.node.tryGetContext("env"));
 const appId = requireParam("App Id", app.node.tryGetContext("appId"));
 const companyId = requireParam("Company Id", app.node.tryGetContext("companyId"));
 const blockRef = requireParam("Block Ref", app.node.tryGetContext("blockRef"));
-const cfg = JSON.parse(app.node.tryGetContext("blockConfig") ?? "{}");
+const cfg = parseBlockConfig<S3Config>(
+  app.node.tryGetContext("blockConfig"),
+  S3_CONFIG_KEYS,
+  "s3",
+);
 const extra = JSON.parse(app.node.tryGetContext("tags") ?? "{}");
 
 

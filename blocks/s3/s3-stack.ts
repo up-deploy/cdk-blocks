@@ -2,13 +2,26 @@ import { CfnOutput, RemovalPolicy, Stack, StackProps, Validations } from "aws-cd
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
+/**
+ * What `blockConfig` accepts for this block. The runtime guard in
+ * `lib/block-config.ts` is fed from S3_CONFIG_KEYS, so a key the block does not
+ * declare is rejected instead of silently ignored.
+ *
+ * Keep these two in sync. If they drift, they drift in the safe direction: a key
+ * added to S3Config but not to S3_CONFIG_KEYS is REJECTED at synth, which fails
+ * the request loudly on the very first use rather than quietly doing nothing.
+ */
+export const S3_CONFIG_KEYS = ["retain"] as const;
+
+export interface S3Config {
+  readonly retain?: boolean
+}
+
 export interface S3BucketStackProps extends StackProps {
   readonly appId: string
   readonly environment: string
   readonly companyId: string
-  cfg: {
-    readonly retain?:boolean
-  }
+  readonly cfg: S3Config
 }
 
 
