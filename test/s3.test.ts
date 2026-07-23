@@ -1,6 +1,6 @@
 import { App, AspectPriority, Aspects } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
-import { S3BucketStack, S3Config, S3_CONFIG_KEYS } from "../blocks/s3/s3-stack";
+import { S3BucketStack, S3ConfigSchema } from "../blocks/s3/s3-stack";
 import { parseBlockConfig } from "../lib/block-config";
 import { applyPlatformTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { AwsSolutionsChecks } from "cdk-nag";
@@ -12,7 +12,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     environment: "dev",
     appId: "0asd3",
     companyId: "up",
-    cfg: {}
+    cfg: {logBucket: "somelogbuckeg"}
   });
   const template = Template.fromStack(stack);
 
@@ -192,7 +192,9 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
       companyId: "up",
       appId: "a231",
       environment: "dev",
-      cfg: {},
+      // logging is mandatory now (the S1 acknowledgement was removed), so a compliant
+      // bucket MUST have a destination — an empty cfg would legitimately fail S1.
+      cfg: { logBucket: "up-s3-logs-dev-01" },
     });
 
     const report = new AwsSolutionsChecks(app).validateScope(stack);
@@ -209,18 +211,21 @@ describe("blockConfig validation (lib/block-config.ts)", () => {
   // with DeletionPolicy: Delete and exited 0, while the environment file said the
   // bucket should be retained. In prod that is data loss from a transposed letter.
   const parse = (raw: string | undefined) =>
-    parseBlockConfig<S3Config>(raw, S3_CONFIG_KEYS, "s3");
+    parseBlockConfig(raw, S3ConfigSchema, "s3");
 
   test("POLICY: a misspelled key is rejected, not ignored", () => {
-    expect(() => parse('{"retian":true}')).toThrow(/Unknown blockConfig key\(s\).*retian/);
-  });
-
-  test("the error names what the block does accept", () => {
-    expect(() => parse('{"retian":true}')).toThrow(/accepts: retain/);
+    // `.strict()` — the whole reason a schema replaced the old key array.
+    expect(() => parse('{"retian":true}')).toThrow(/[Uu]nrecognized key.*retian/);
   });
 
   test("every unknown key is reported, not just the first", () => {
-    expect(() => parse('{"retian":true,"versionned":true}')).toThrow(/retian, versionned/);
+    expect(() => parse('{"retian":true,"versionned":true}')).toThrow(/retian[\s\S]*versionned/);
+  });
+
+  test("POLICY: a wrong value type is rejected, not coerced", () => {
+    // `-c retain=false` gives the STRING "false", which is truthy — the D-002 bug.
+    // The old key-only check missed this; the schema's z.boolean() catches it.
+    expect(() => parse('{"retain":"false"}')).toThrow(/retain.*[Ee]xpected boolean/);
   });
 
   test("a declared key is accepted and keeps its real boolean type", () => {
@@ -243,6 +248,6 @@ describe("blockConfig validation (lib/block-config.ts)", () => {
     ["a string", '"retain"'],
     ["a number", "7"],
   ])("JSON %s is rejected", (_label, raw) => {
-    expect(() => parse(raw)).toThrow(/must be a JSON object/);
+    expect(() => parse(raw)).toThrow(/[Ee]xpected object/);
   });
 });

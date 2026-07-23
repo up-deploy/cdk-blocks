@@ -1,21 +1,23 @@
-import { CfnOutput, RemovalPolicy, Stack, StackProps, Validations } from "aws-cdk-lib";
+import { CfnOutput, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
+import { z } from "zod";
 
 /**
- * What `blockConfig` accepts for this block. The runtime guard in
- * `lib/block-config.ts` is fed from S3_CONFIG_KEYS, so a key the block does not
- * declare is rejected instead of silently ignored.
- *
- * Keep these two in sync. If they drift, they drift in the safe direction: a key
- * added to S3Config but not to S3_CONFIG_KEYS is REJECTED at synth, which fails
- * the request loudly on the very first use rather than quietly doing nothing.
+ * What `blockConfig` accepts for this block — the SINGLE definition. `.strict()` rejects
+ * unknown keys (a typo'd `retian` fails instead of being silently ignored), each field
+ * fixes its type (so `retain: "false"` is rejected too), and `S3Config` is INFERRED from
+ * it — no second list to keep in sync. Adding a parameter is one line here.
  */
-export const S3_CONFIG_KEYS = ["retain"] as const;
+export const S3ConfigSchema = z
+  .object({
+    retain: z.boolean().optional(),
+    logBucket: z.string().optional(),
+  })
+  .strict();
 
-export interface S3Config {
-  readonly retain?: boolean
-}
+export type S3Config = z.infer<typeof S3ConfigSchema>;
+
 
 export interface S3BucketStackProps extends StackProps {
   readonly appId: string
@@ -33,20 +35,17 @@ export class S3BucketStack extends Stack {
 
     const bucketName = props.companyId + "-s3-" + props.appId + "-" + props.environment + "-01"
 
+    const logBucket = props.cfg.logBucket
+      ? s3.Bucket.fromBucketName(this, "LogBucket", props.cfg.logBucket)
+      : undefined;
+
     this.bucket = new s3.Bucket(this, "Bucket", {
       bucketName: bucketName,
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
+      serverAccessLogsBucket: logBucket,
       encryption: s3.BucketEncryption.S3_MANAGED,
       removalPolicy: props.cfg.retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-    });
-
-    // Class-3 exception, not a config option. Acknowledged on the bucket rather than the
-    // stack so a future resource added here does not silently inherit the exemption.
-    Validations.of(this.bucket).acknowledge({
-      id: "AwsSolutions-S1",
-      reason: "No log destination exists until the central logging bucket lands in "
-            + "roadmap B1. The bucket is private, SSL-only and encrypted. Revisit when B1 ships.",
     });
 
 

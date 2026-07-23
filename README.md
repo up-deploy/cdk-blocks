@@ -40,3 +40,4 @@ npm run synth:s3 -- -c instance=demo -c env=dev   # full synth, no AWS credentia
 ## Releasing
 
 Merge to `main` via PR, then tag: `git tag v0.x.y && git push origin v0.x.y`. The platform adopts the release only when its catalog pin is updated (see [the catalog](https://github.com/up-deploy/up-platform/tree/main/catalog)).
+# test
