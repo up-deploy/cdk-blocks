@@ -1,4 +1,4 @@
-import { CfnOutput, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import { CfnOutput, RemovalPolicy, Stack, StackProps, Validations } from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 
@@ -28,7 +28,13 @@ export class S3BucketStack extends Stack {
       removalPolicy: props.cfg.retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
     });
 
-   
+    // Class-3 exception, not a config option. Acknowledged on the bucket rather than the
+    // stack so a future resource added here does not silently inherit the exemption.
+    Validations.of(this.bucket).acknowledge({
+      id: "AwsSolutions-S1",
+      reason: "No log destination exists until the central logging bucket lands in "
+            + "roadmap B1. The bucket is private, SSL-only and encrypted. Revisit when B1 ships.",
+    });
 
 
     new CfnOutput(this, "BucketName", {
