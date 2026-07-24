@@ -27,6 +27,27 @@ const RESERVED_KEYS: ReadonlySet<string> = new Set<string>([...PLATFORM_KEYS, "c
  */
 const KEY_PATTERN = /^[a-z][a-z0-9-]*$/;
 
+/**
+ * Parses the `-c tags` context blob the same way blockConfig is parsed: loudly.
+ * A raw JSON.parse here would throw a bare SyntaxError naming nothing — this
+ * value passes through yq, GITHUB_OUTPUT and a workflow input before it arrives,
+ * so the error must say what was received. Null and arrays are objects to
+ * `typeof`, and both would otherwise read as "no extra tags" and vanish.
+ */
+export function parseExtraTags(raw?: string): Record<string, unknown> {
+  let parsed: unknown;
+  try {
+    parsed = JSON.parse(raw ?? "{}");
+  } catch (err) {
+    const msg = err instanceof Error ? err.message : String(err);
+    throw new Error(`tags is not valid JSON: ${msg}. Received: ${raw}`);
+  }
+  if (parsed === null || typeof parsed !== "object" || Array.isArray(parsed)) {
+    throw new Error(`tags must be a JSON object of key/value pairs. Received: ${raw}`);
+  }
+  return parsed as Record<string, unknown>;
+}
+
 export interface PlatformTagOptions {
   /** Tag namespace, from config/environments/<env>.yaml. */
   readonly companyId: string;
@@ -71,7 +92,15 @@ export function applyPlatformTags(scope: IConstruct, opts: PlatformTagOptions): 
           `Setting it here would overwrite a per-request value with a per-environment constant.`,
       );
     }
-    tags.add(ns(key), String(value));
+    // AWS caps tag values at 256 characters and rejects the write at deploy
+    // time; an empty value is a key that tags nothing. Both fail synth instead.
+    const str = String(value);
+    if (str.length === 0 || str.length > 256) {
+      throw new Error(
+        `Invalid value for tag key '${key}' — values must be 1-256 characters, got ${str.length}.`,
+      );
+    }
+    tags.add(ns(key), str);
   }
 }
 
