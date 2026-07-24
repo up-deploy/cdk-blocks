@@ -20,9 +20,12 @@ Do not implement several steps ahead, and do not write code he has not asked for
 | `bin/<name>.ts` | the block's entrypoint — reads context, composes the name, applies tags, registers cdk-nag |
 | `blocks/<name>/` | the stack and its constructs — where the policy fence lives |
 | `lib/platform-tags.ts` | `applyPlatformTags()` + `RequiredTagsAspect`, shared by every block |
-| `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and rejects keys the block does not declare |
+| `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and validates it against the block's zod schema |
 | `test/<name>.test.ts` | `Template.fromStack()` assertions, incl. the `POLICY:`-prefixed ones |
-| `.github/workflows/ci.yml` | `tsc` + tests on every PR and on `main` |
+| `.github/workflows/ci.yml` | `build` (tsc + tests) and `scan` (proves the entrypoint wires cdk-nag) |
+| `.github/workflows/naming.yml` | `naming` — branch slug, Conventional-Commits PR title, PR direction |
+| `.github/workflows/release.yml` | cuts `release/vX.Y.Z` off `develop` and bumps the version |
+| `.github/workflows/tag-and-merge-back.yml` | on push to `main`: cuts the tag, prepares the merge-back |
 
 Shared gotchas (the tag trap, `-c` values always being strings, `GITHUB_OUTPUT` line-format, the
 `actionlint` false positive, CDK aspect priority) are documented once in
@@ -37,8 +40,12 @@ npx tsc --noEmit && npm test          # what CI runs
 # Synth a block by hand, exactly as cdk-build.yml does it
 npx cdk synth -a "npx ts-node bin/s3.ts" \
   -c account=012514678082 -c region=eu-west-1 -c companyId=up \
-  -c appId=a231 -c env=dev -c blockConfig='{"retain":false}'
+  -c appId=a231 -c env=dev -c blockRef=v0.2.0 -c tags='{}' \
+  -c blockConfig='{"retain":false,"logBucket":"up-s3-logs-dev-01"}'
 ```
+
+`logBucket` is not optional in practice: the `AwsSolutions-S1` acknowledgement was removed, so a
+bucket with no logging destination fails the synth. That is deliberate — logging is mandatory.
 
 The synth prints `compliance: pack=AwsSolutions cdk-nag=<version>` on stderr. **That line is the
 only positive evidence the compliance gate executed** — a clean cdk-nag run writes
@@ -56,12 +63,37 @@ A block is a unit of *release*, so its public surface has to be stable and small
   block code with no override prop. A policy that is a prop with a default is a suggestion.
 - **The block composes its own resource name** — `<companyId>-<block>-<appId>-<env>-01`. The caller
   supplies `appId` only. Naming is a platform guarantee that tags and cost attribution rely on.
-- **Unknown `blockConfig` keys are rejected** by `parseBlockConfig()`, fed from the block's
-  `<BLOCK>_CONFIG_KEYS`. Without it a typo'd key is silently ignored: `{"retian":true}` used to
-  synthesize `DeletionPolicy: Delete` and exit 0 while the environment file asked for the bucket
-  to be retained. Keep the key list beside the config interface. If they drift they drift safely —
-  a key in the interface but missing from the list is rejected at synth, which fails loudly on
-  first use. The accepted set is never mirrored into the catalog.
+- **`blockConfig` is validated against a zod schema** — `<Block>ConfigSchema`, exported from the
+  block's stack file and passed to `parseBlockConfig()`. The schema is the **single** definition:
+  `.strict()` rejects unknown keys, each field fixes its type, and the TS type is `z.infer`red from
+  it, so adding a parameter is one line in one place. Without this a typo'd key was silently
+  ignored — `{"retian":true}` synthesized `DeletionPolicy: Delete` and exited 0 while the
+  environment file asked for the bucket to be **retained**. The schema also catches what a key list
+  could not: `{"retain":"false"}` is a string, which is truthy, and is now rejected rather than
+  coerced. The accepted set is never mirrored into the catalog.
+
+## Branching — Gitflow since 2026-07-23
+
+`develop` is the **default branch** and where work lands. `main` holds only released code and
+carries the tags. Both are protected: PR required, `build` + `scan` + `naming` must be green,
+no force-push, no deletion, **zero bypass actors**.
+
+| Branch | From | Merges into | Merge style |
+|---|---|---|---|
+| `feature/*` | `develop` | `develop` | squash |
+| `chore/*`, `docs/*` | `develop` | `develop` | squash |
+| `release/*` | `develop` | `main` **and back into `develop`** | **merge commit** |
+| `hotfix/*` | `main` | `main` **and back into `develop`** | **merge commit** |
+
+Branch names are enforced server-side — anything off that allowlist is refused at `git push` with
+`GH013`. `feat/`, `fix/` and `ci/` are **retired**; ordinary bug fixes are `feature/`, and
+`hotfix/` means "main is broken in production right now".
+
+> ⚠️ Never squash a `release/*` or `hotfix/*` into `main`. The merge-back into `develop` then
+> compares one squashed commit against the commits it was built from and conflicts — on that
+> release and every release after it.
+
+Full standard, including the PR-title format: `Wiki/wiki/standards/git-branch-commit-standard.md`.
 
 ## Changing a block, or adding one
 
@@ -71,7 +103,8 @@ after it is.
 ### 1. Develop
 
 ```bash
-git checkout -b feat/<something>
+git checkout develop && git pull
+git checkout -b feature/<something>
 # edit bin/<name>.ts, blocks/<name>/, test/<name>.test.ts
 npx tsc --noEmit && npm test
 npx cdk synth -a "npx ts-node bin/<name>.ts" -c ...   # read the template AND the nag verdict
@@ -96,21 +129,35 @@ This is the step that replaces "deploy to dev and see". It is also structurally 
 requires `source.ref` to match `^v[0-9]+\.[0-9]+\.[0-9]+$`, so a branch can be built this way but
 can never be pinned.
 
-### 3. Release
+### 3. Release — mostly automated
 
-PR → CI green → merge → cut the tag:
+PR into `develop` → three checks green → squash-merge. Then:
 
 ```bash
-git checkout main && git pull
-git tag -a v0.3.0 -m "<what changed>"
-git push origin v0.3.0
+gh workflow run release.yml -f bump=patch     # or minor / major
 ```
+
+That cuts `release/vX.Y.Z` off `develop` and bumps `package.json`. **Open the PR into `main`
+yourself** and merge it with a **merge commit**. Merging fires `tag-and-merge-back.yml`, which cuts
+the annotated tag and prepares `chore/merge-back-vX.Y.Z` — open and merge that too.
+
+Neither workflow opens a PR, and neither needs a stored token. A PR opened with `GITHUB_TOKEN`
+does not trigger `pull_request` workflows, so the required checks would never report and the PR
+would be unmergeable forever; the alternative is a long-lived PAT in a **public** repo. You click
+instead.
+
+The next version is derived from the **latest tag**, never from `package.json` — the two drifted
+once (`package.json` said `0.1.0` while `v0.2.0` was shipped), and deriving from the tag makes that
+self-healing.
 
 **Tags are immutable** (ruleset `19618738` on `refs/tags/v*`, no bypass actors). You cannot move or
 delete one. Before this ruleset a tag shipped the wrong code three times, and one delete-then-recreate
 left a window where the pin did not exist at all and a live request died at checkout.
 
 Verify the tag means what you think: `git show v0.3.0:bin/<name>.ts`.
+
+> Skipping the merge-back is the one Gitflow mistake that bites later: the release lives only on
+> `main` and the next release silently reverts it. Nothing reports an error when that happens.
 
 ### 4. Publish to the platform
 
