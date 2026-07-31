@@ -16,6 +16,15 @@
 # SUBSTITUTION is not; the pack line printed by the block itself is what closes
 # that gap.
 #
+# TWO channels are read, because there are two. cdk-nag reports through
+# `validation-report.json`; CDK ITSELF reports through the cloud assembly's metadata,
+# as `aws:cdk:warning` and `aws:cdk:error`. Until 2026-08-01 nothing here looked at the
+# second one, so a run could be `compliant` while CDK was saying the resource does not
+# do what its template claims — which is precisely what happened: `Unable to add
+# necessary logging permissions to imported target bucket` sat in a green run's
+# synth.log, unread by any gate. Same lesson as the pack line: a verdict that names
+# only what it checked is not a verdict.
+#
 # Usage: scripts/scan-verdict.sh <cdk-out-dir> <synth-log>
 #
 # Optional env, used only to label the summary table:
@@ -47,6 +56,67 @@ elif [ "$(jq '[.pluginReports[].violations[]] | length' "$REPORT")" -gt 0 ]; the
   detail="$(jq -r '.pluginReports[].violations[] | "- `\(.ruleName)` [\(.severity)] — \(.description)"' "$REPORT")"
 fi
 
+# ── CDK's own annotations ────────────────────────────────────────────────────
+# Read from the ASSEMBLY, never from the log. The metadata is keyed by construct path
+# and carries the acknowledgement id; the log carries prose whose shape changes between
+# CDK versions, and grepping `^WARNING` would make the gate a text-matching exercise.
+#
+# Both assembly layouts are read. Recent CDK writes one `<Stack>.metadata.json` per
+# artifact and points at it from `manifest.json` (`additionalMetadataFile`); older
+# assemblies inline the same map under `.artifacts[].metadata`. Blocks travel to clients
+# who pin their own aws-cdk-lib, and a client on a version this script did not expect
+# must not silently get an unchecked build.
+#
+# Acknowledging one of these is NOT the deal cdk-nag offers. `Annotations.acknowledgeWarning`
+# accepts a message and DISCARDS it, then splices the entry out of the assembly — so an
+# acknowledged annotation leaves no trace here, none in the template, and nothing readable
+# from AWS, where a cdk-nag acknowledgement writes its id and its reason into template
+# Metadata. Everything this section can see is therefore unacknowledged by construction,
+# and an acknowledgement's only record is the line of source that made it.
+# shellcheck disable=SC2016  # a jq program: $path is jq's variable, and expanding it
+# in the shell is exactly what must NOT happen.
+SELECT_ANNOTATIONS='
+  .key as $path | .value[]
+  | select(.type == "aws:cdk:error" or .type == "aws:cdk:warning")
+  | "- `\(.type | ltrimstr("aws:cdk:"))` `\($path)` — \(.data)"'
+
+annotations="$(
+  {
+    if compgen -G "$CDK_OUT/*.metadata.json" > /dev/null; then
+      jq -r "to_entries[] | $SELECT_ANNOTATIONS" "$CDK_OUT"/*.metadata.json
+    fi
+    if [ -f "$CDK_OUT/manifest.json" ]; then
+      jq -r ".artifacts // {} | to_entries[] | (.value.metadata // {}) | to_entries[] | $SELECT_ANNOTATIONS" \
+        "$CDK_OUT/manifest.json"
+    fi
+  } | sort -u
+)"
+
+# Only ever tightens the verdict. A cdk-nag violation is the stronger signal and keeps
+# its name; the annotations still render below either way.
+if [ "$verdict" = "compliant" ]; then
+  if [ -n "$annotations" ]; then
+    verdict="annotations"
+  elif [ ! -f "$CDK_OUT/manifest.json" ]; then
+    # No manifest means the annotation channel could not be read at all, which is not
+    # the same fact as "there were none".
+    verdict="not verified"
+    detail="No \`manifest.json\` — cannot read CDK's own annotation channel."
+  else
+    # A manifest that points at a metadata file which is not there: the artifact was
+    # truncated, or the download half-failed. Silence from a file that should exist is
+    # the substitution case, so it fails rather than reporting a clean sweep.
+    missing="$(jq -r '.artifacts // {} | to_entries[]
+                      | select(.value.additionalMetadataFile)
+                      | .value.additionalMetadataFile' "$CDK_OUT/manifest.json" \
+               | while read -r f; do [ -f "$CDK_OUT/$f" ] || echo "- \`$f\`"; done)"
+    if [ -n "$missing" ]; then
+      verdict="not verified"
+      detail="\`manifest.json\` declares metadata files that are absent:"$'\n'"$missing"
+    fi
+  fi
+fi
+
 {
   echo "### Compliance scan"
   echo ""
@@ -71,6 +141,16 @@ fi
     echo "$detail"
     echo ""
   fi
+  # Always rendered, even when empty. "none" is a claim the panel is now entitled to
+  # make; before this section it was making that claim by saying nothing.
+  echo "#### CDK annotations"
+  echo ""
+  if [ -n "$annotations" ]; then
+    echo "$annotations"
+  else
+    echo "- none"
+  fi
+  echo ""
   echo "#### Exceptions in force"
   echo ""
   if compgen -G "$CDK_OUT/*.template.json" > /dev/null; then
