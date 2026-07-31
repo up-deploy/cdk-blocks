@@ -73,9 +73,6 @@ export class S3Bucket extends Construct {
       seq: props.seq,
     });
 
-    // The block composes the name, so the block owns its legality. S3 names are
-    // global and CloudFormation only fails at deploy time; catching it here turns
-    // a late runtime error into an immediate synth error that names the input.
     if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucketName)) {
       throw new Error(
         `Composed bucket name '${bucketName}' is not a legal S3 name ` +
@@ -93,22 +90,14 @@ export class S3Bucket extends Construct {
       blockPublicAccess: s3.BlockPublicAccess.BLOCK_ALL,
       enforceSSL: true,
       serverAccessLogsBucket: logBucket,
-      // One central log bucket serves every block instance, so each writes under
-      // its own name — without a prefix the destination is unnavigable.
+
       serverAccessLogsPrefix: logBucket ? `${bucketName}/` : undefined,
       encryption: s3.BucketEncryption.S3_MANAGED,
-      // ACLs stay disabled. This is the modern S3 default, but policy is only
-      // policy when the block states it — a default is a suggestion.
       objectOwnership: s3.ObjectOwnership.BUCKET_OWNER_ENFORCED,
-      // Overwrite/delete protection. AwsSolutions has no versioning rule, so
-      // this is fenced here and asserted in the POLICY tests instead.
+
       versioned: true,
       lifecycleRules: [
         {
-          // Abandoned multipart uploads are invisible in the console and are
-          // billed forever; versioning without noncurrent expiry grows without
-          // bound. Both are cost fences, not data policy — current objects are
-          // never expired here.
           abortIncompleteMultipartUploadAfter: Duration.days(7),
           noncurrentVersionExpiration: Duration.days(90),
         },
