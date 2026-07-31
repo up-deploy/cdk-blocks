@@ -1,7 +1,7 @@
 #!/usr/bin/env node
 import * as cdk from "aws-cdk-lib";
 import { OidcFoundationStack } from "./oidc-stack";
-import { applyPlatformTags, parseExtraTags, RequiredTagsAspect } from "../lib/platform-tags";
+import { applyComponentTags, applyPlatformTags, parseExtraTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { requireParam } from "../lib/require-param";
 import { AwsSolutionsChecks } from "cdk-nag";
 
@@ -94,6 +94,9 @@ const extra = parseExtraTags(app.node.tryGetContext("tags"));
  */
 const FOUNDATION_APP_ID = "plat";
 
+/** What this stack is FOR. Hardcoded like the appId: the foundation is not a requestable component. */
+const FOUNDATION_ROLE = "oidc";
+
 new OidcFoundationStack(app, "Foundation", {
   env: { account, region },
   githubOrg,
@@ -107,9 +110,17 @@ applyPlatformTags(app, {
   companyId,
   appId: FOUNDATION_APP_ID,
   environment,
+  extra,
+});
+
+// The foundation is one stack holding one component, so the component tier is applied at app
+// scope here. It still emits every key, because B4's AWS Config required-tags rule must not find
+// the platform itself reported as shadow infrastructure.
+applyComponentTags(app, {
+  companyId,
   block: "foundation",
   blockRef,
-  extra,
+  role: FOUNDATION_ROLE,
 });
 
 cdk.Aspects.of(app).add(new RequiredTagsAspect(companyId), {

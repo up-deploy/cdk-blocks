@@ -11,6 +11,9 @@ export interface S3BucketStackProps extends StackProps {
   readonly appId: string
   readonly environment: string
   readonly companyId: string
+  readonly role: string
+  readonly seq?: string
+  readonly blockRef: string
   readonly cfg: S3Config
 }
 
@@ -30,6 +33,9 @@ export class S3BucketStack extends Stack {
       companyId: props.companyId,
       appId: props.appId,
       environment: props.environment,
+      role: props.role,
+      seq: props.seq,
+      blockRef: props.blockRef,
       cfg: props.cfg,
     }).bucket;
 

@@ -1,4 +1,4 @@
-import { Annotations, IAspect, TagManager, Tags } from "aws-cdk-lib";
+import { Annotations, CfnResource, IAspect, TagManager, Tags } from "aws-cdk-lib";
 import { IConstruct } from "constructs";
 
 /**
@@ -9,8 +9,16 @@ import { IConstruct } from "constructs";
  * prefix would make two installs emit identical keys in a shared payer account.
  */
 
-/** Keys the platform emits itself. Required on every taggable resource, never supplied by config. */
-const PLATFORM_KEYS = ["managed", "app-id", "env", "block", "block-ref"] as const;
+/**
+ * Keys the platform emits itself. Required on every taggable resource, never supplied by config.
+ *
+ * They arrive in TWO TIERS, because one stack belongs to an app team and holds components from
+ * different blocks at different versions. `block`, `block-ref` and `role` describe a single
+ * component and cannot be applied at app scope: the stack has no one block and no one ref.
+ */
+const APP_KEYS = ["managed", "app-id", "env"] as const;
+const COMPONENT_KEYS = ["block", "block-ref", "role"] as const;
+const PLATFORM_KEYS = [...APP_KEYS, ...COMPONENT_KEYS] as const;
 
 /**
  * Keys config may never supply. The platform keys, plus `companyid`: it IS the prefix, so emitting
@@ -55,16 +63,23 @@ export interface PlatformTagOptions {
   readonly appId: string;
   /** Class 2, the environment ring. */
   readonly environment: string;
-  /** The catalog entry name. */
-  readonly block: string;
-  /** The catalog's source.ref. Records which version of the block built the resource. */
-  readonly blockRef: string;
   /** Class 2, free-form keys from the env file's `tags:` map. Supplied bare; prefixed here. */
   readonly extra?: Record<string, unknown>;
 }
 
+export interface ComponentTagOptions {
+  /** Tag namespace, from config/environments/<env>.yaml. */
+  readonly companyId: string;
+  /** The catalog entry name. */
+  readonly block: string;
+  /** The catalog's source.ref. Records which version of the block built the resource. */
+  readonly blockRef: string;
+  /** What this component is for, e.g. `docs`. Also the name segment. */
+  readonly role: string;
+}
+
 /**
- * Applies the platform tag set to every taggable resource under `scope`.
+ * Applies the APP-tier tag set to every taggable resource under `scope`.
  *
  * Throws rather than annotating: a bad key is a config error, and there is nothing useful to
  * synthesize past it.
@@ -76,8 +91,6 @@ export function applyPlatformTags(scope: IConstruct, opts: PlatformTagOptions): 
   tags.add(ns("managed"), "true");
   tags.add(ns("app-id"), opts.appId);
   tags.add(ns("env"), opts.environment);
-  tags.add(ns("block"), opts.block);
-  tags.add(ns("block-ref"), opts.blockRef);
 
   for (const [key, value] of Object.entries(opts.extra ?? {})) {
     if (!KEY_PATTERN.test(key)) {
@@ -105,6 +118,22 @@ export function applyPlatformTags(scope: IConstruct, opts: PlatformTagOptions): 
 }
 
 /**
+ * Applies the COMPONENT-tier tags to everything under one component.
+ *
+ * A construct calls this on itself, so a component cannot be added to an app stack and forget
+ * to say which block built it. `role` is emitted as a tag as well as a name segment: the name
+ * is for humans, the tag is what Cost Explorer and AWS Config can filter on.
+ */
+export function applyComponentTags(scope: IConstruct, opts: ComponentTagOptions): void {
+  const ns = (key: string) => `${opts.companyId}:${key}`;
+  const tags = Tags.of(scope);
+
+  tags.add(ns("block"), opts.block);
+  tags.add(ns("block-ref"), opts.blockRef);
+  tags.add(ns("role"), opts.role);
+}
+
+/**
  * Fails synth if any taggable resource is missing a required key.
  *
  * applyPlatformTags validates its inputs; this covers what input validation cannot — a resource that
@@ -123,6 +152,14 @@ export class RequiredTagsAspect implements IAspect {
   }
 
   public visit(node: IConstruct): void {
+    // Only template resources. A Stack is taggable too, but it holds MANY components and so has
+    // no single block, block-ref or role — asserting the component tier on it would demand a
+    // value that cannot exist. The rule this aspect defends is "every resource is in the index",
+    // and a resource is a CfnResource.
+    if (!CfnResource.isCfnResource(node)) {
+      return;
+    }
+
     // Both flavours, the way CDK's own Tag.visit does it: CfnBucket is v1, but other L1s in the
     // same synth are v2. Checking only one silently skips part of the tree.
     const manager = TagManager.isTaggableV2(node)

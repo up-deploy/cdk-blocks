@@ -12,6 +12,8 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     environment: "dev",
     appId: "0asd3",
     companyId: "up",
+    role: "docs",
+    blockRef: "v0.1.0",
     cfg: {logBucket: "somelogbuckeg"}
   });
   const template = Template.fromStack(stack);
@@ -65,7 +67,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
 
   test("the block composes the bucket name, the caller only supplies appId", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-0asd3-dev-01",
+      BucketName: "up-s3-0asd3-docs-dev-01",
     });
   });
 
@@ -108,7 +110,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   test("access logs are prefixed with the bucket's own name", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       LoggingConfiguration: Match.objectLike({
-        LogFilePrefix: "up-s3-0asd3-dev-01/",
+        LogFilePrefix: "up-s3-0asd3-docs-dev-01/",
       }),
     });
   });
@@ -123,6 +125,8 @@ describe("s3 block (private, secure-by-default bucket)", () => {
           environment: "dev",
           appId: "a".repeat(60),
           companyId: "up",
+          role: "docs",
+          blockRef: "v0.1.0",
           cfg: {},
         }),
     ).toThrow(/not a legal S3 name/);
@@ -140,6 +144,8 @@ describe("s3 block (private, secure-by-default bucket)", () => {
       environment: "prod",
       appId: "0asd3",
       companyId: "up",
+      role: "docs",
+      blockRef: "v0.1.0",
       cfg: { retain: true },
     });
 
@@ -164,14 +170,14 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
+      role: "docs",
+      blockRef: "v0.1.0",
       cfg: {},
     });
     applyPlatformTags(app, {
       companyId: "up",
       appId: "0asd3",
       environment: "dev",
-      block: "s3",
-      blockRef: "v0.1.0",
       extra,
     });
     return { app, stack };
@@ -226,6 +232,8 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
+      role: "docs",
+      blockRef: "v0.1.0",
       cfg: {},
     });
     // No applyPlatformTags call — this is the hole the aspect exists to catch.
@@ -261,6 +269,8 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
       companyId: "up",
       appId: "a231",
       environment: "dev",
+      role: "docs",
+      blockRef: "v0.1.0",
       // logging is mandatory now (the S1 acknowledgement was removed), so a compliant
       // bucket MUST have a destination — an empty cfg would legitimately fail S1.
       cfg: { logBucket: "up-s3-logs-dev-01" },

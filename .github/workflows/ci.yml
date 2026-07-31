@@ -98,7 +98,7 @@ jobs:
               run: |
                 npx cdk synth -a "npx ts-node bin/s3.ts" -o cdk.out/s3 \
                   -c account=111111111111 -c region=eu-west-1 -c companyId=up \
-                  -c appId=ci00 -c env=dev -c blockRef=ci \
+                  -c appId=ci00 -c env=dev -c blockRef=ci -c role=cidocs \
                   -c blockConfig='{"retain":false,"logBucket":"ci-log-bucket"}' \
                   -c tags='{}' \
                   1>/dev/null 2>synth-s3.log
