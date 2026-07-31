@@ -275,6 +275,29 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
     expect(
       report.violations.map((v) => `${v.ruleName}: ${v.description}`)
     ).toEqual([]);  });
+
+  // CDK's own annotations are a SECOND channel, and scan-verdict.sh now fails closed on
+  // them. cdk-nag's acknowledgement writes its reason into template Metadata; CDK's takes
+  // the message and throws it away, leaving no artifact to audit — so this test is the only
+  // thing that can notice the acknowledgement disappearing. Delete the acknowledgeWarning
+  // call in blocks/s3/s3-bucket.ts and this goes red, ahead of every request going red.
+  //
+  // Asserted as "no warnings at all", not "not this one": a NEW warning is exactly what the
+  // gate exists to surface, and a test that named the acknowledged id would pass through it.
+  test("POLICY: the s3 block synthesizes with no unacknowledged CDK warnings", () => {
+    const app = new App();
+    const stack = new AppStack(app, "S3", {
+      env: { account: "012514678082", region: "eu-west-1" },
+      companyId: "up",
+      appId: "a231",
+      environment: "dev",
+      components: [
+        { block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
+      ],
+    });
+
+    Annotations.fromStack(stack).hasNoWarning("*", Match.anyValue());
+  });
 });
 
 
