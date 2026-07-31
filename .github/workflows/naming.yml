@@ -41,6 +41,14 @@ jobs:
                   echo "branch  : $BRANCH (dependabot, exempt)"
                 elif printf '%s' "$BRANCH" | grep -qE '^(feature|release|hotfix|chore|docs)/[a-z0-9._-]+$'; then
                   echo "branch  : $BRANCH"
+                elif printf '%s' "$BRANCH" | grep -qE '^(main|develop)$'; then
+                  # A PROTECTED branch as the head is never a mislabelled feature branch, so the
+                  # generic advice below ("rename it") is not merely unhelpful here — it tells you
+                  # to rename `main`. This happens for one reason: GitHub's "Compare & pull
+                  # request" banner defaults the head to whatever branch you were last looking at,
+                  # and after a release you were looking at main. The merge-back branch already
+                  # exists; it is the one the release workflow pushed.
+                  note "Branch '$BRANCH' is a protected branch and must never be the HEAD of a pull request. This is almost always a merge-back opened from the wrong branch: close this PR and open one from 'chore/merge-back-vX.Y.Z', which tag-and-merge-back.yml already pushed. Do NOT rename '$BRANCH'."
                 else
                   note "Branch '$BRANCH' is not a valid Gitflow name. Expected feature|release|hotfix|chore|docs/<slug>, slug lowercase [a-z0-9._-]. Rename with: git branch -m <new> && git push origin -u <new>"
                 fi
