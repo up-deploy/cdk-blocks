@@ -17,7 +17,10 @@ Do not implement several steps ahead, and do not write code he has not asked for
 
 | Path | What |
 |---|---|
-| `bin/<name>.ts` | the block's entrypoint — reads context, composes the name, applies tags, registers cdk-nag |
+| `bin/<name>.ts` | the block's entrypoint — reads context, composes the name, applies tags, registers cdk-nag. The file name IS how a request selects the block, so a file here is by definition orderable |
+| `foundation/` | the OIDC trust that lets CI reach an account at all. Deliberately NOT a block: deployed once by hand with admin credentials, has no `appId`, and must not be requestable. Keeps every block *convention* (context inputs, `applyPlatformTags`, cdk-nag in the entrypoint, `POLICY:` tests) |
+| `lib/require-param.ts` | `requireParam()` — one context value or a failed synth. Absent and empty are both refused; the pattern passed in IS the contract |
+| `scripts/foundation-preflight.sh` | reads a target account read-only and reports bootstrap version, qualifier, execution policies, trusted accounts and any existing GitHub OIDC provider, then prints the deploy command with the flags that account needs. Reports, never prescribes |
 | `blocks/<name>/` | the stack and its constructs — where the policy fence lives |
 | `lib/platform-tags.ts` | `applyPlatformTags()` + `RequiredTagsAspect`, shared by every block |
 | `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and validates it against the block's zod schema |

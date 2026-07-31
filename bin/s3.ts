@@ -3,24 +3,10 @@ import * as cdk from "aws-cdk-lib";
 import { S3BucketStack, S3ConfigSchema } from "../blocks/s3/s3-stack";
 import { applyPlatformTags, parseExtraTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { parseBlockConfig } from "../lib/block-config";
+import { requireParam } from "../lib/require-param";
 import { AwsSolutionsChecks } from "cdk-nag";
 
 const app = new cdk.App();
-
-// The platform's catalog gate validates these too, but this repo is public and
-// can be synthesized with no router in front of it — the block must hold its own
-// contract. appId's pattern here IS the contract; catalog/blocks/s3.yaml mirrors
-// it, and the router's accepted set must stay a subset of the block's.
-function requireParam(name: string, value: string | undefined, pattern: RegExp): string {
-  if (!value || value.trim() === "") {
-    throw new Error(`${name} not set`);
-  }
-  if (!pattern.test(value)) {
-    throw new Error(`${name} '${value}' does not match ${pattern.source}`);
-  }
-  return value;
-}
-
 
 const account = requireParam("AWS Account", app.node.tryGetContext("account"), /^\d{12}$/);
 const region = requireParam("Region", app.node.tryGetContext("region"), /^[a-z]{2}-[a-z]+-\d$/);
