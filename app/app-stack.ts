@@ -2,6 +2,7 @@ import { CfnOutput, Stack, StackProps } from "aws-cdk-lib";
 import { Construct } from "constructs";
 import { ComponentSpec } from "./component-spec";
 import { factoryFor } from "./registry";
+import { publishComponentOutputs } from "../lib/outputs";
 
 export interface AppStackProps extends StackProps {
   readonly companyId: string;
@@ -49,6 +50,26 @@ export class AppStack extends Stack {
           description: `${name} of the ${spec.block} component '${spec.role}'`,
         });
       }
+
+      // CloudFormation outputs are the complete per-stack record and cost nothing, so every
+      // output gets one. SSM is a different question — not "what did this stack make?" but
+      // "what may another project consume?" — and it is answered by the catalog, per block,
+      // defaulting to nothing. Done here rather than in the factory so no block author can
+      // forget it, and so a block stays ignorant of the platform that publishes for it.
+      publishComponentOutputs(
+        this,
+        `${componentId}Published`,
+        {
+          companyId: props.companyId,
+          environment: props.environment,
+          appId: props.appId,
+          block: spec.block,
+          role: spec.role,
+          blockRef: spec.blockRef,
+        },
+        outputs,
+        spec.publishes,
+      );
     }
   }
 }
