@@ -1,7 +1,7 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
 import { composeResourceName, DEFAULT_SEQ } from "../lib/naming";
-import { S3BucketStack } from "../blocks/s3/s3-stack";
+import { AppStack } from "../app/app-stack";
 
 describe("resource naming (lib/naming.ts)", () => {
   const base = {
@@ -52,13 +52,11 @@ describe("resource naming (lib/naming.ts)", () => {
 
 describe("role as a tag, not only a name segment", () => {
   const app = new App();
-  const stack = new S3BucketStack(app, "up-a231-dev", {
+  const stack = new AppStack(app, "up-a231-dev", {
     companyId: "up",
     appId: "a231",
     environment: "dev",
-    role: "docs",
-    blockRef: "v0.3.0",
-    cfg: { logBucket: "up-s3-logs-dev-01" },
+    components: [{ block: "s3", role: "docs", blockRef: "v0.3.0", config: { logBucket: "up-s3-logs-dev-01" } }],
   });
   const template = Template.fromStack(stack);
 

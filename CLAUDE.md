@@ -17,12 +17,16 @@ Do not implement several steps ahead, and do not write code he has not asked for
 
 | Path | What |
 |---|---|
-| `bin/<name>.ts` | the block's entrypoint — reads context, composes the name, applies tags, registers cdk-nag. The file name IS how a request selects the block, so a file here is by definition orderable |
+| `app/app.ts` | the ONE entrypoint. Reads context, builds an `AppStack`, applies the app-tier tags, registers cdk-nag |
+| `app/app-stack.ts` | `AppStack` — one stack per app team per environment, holding every component that team asked for |
+| `app/registry.ts` | which block names are buildable, and how. This replaced `bin/<name>.ts` as the selection contract: a block is requestable because it is registered here, not because a file exists |
+| `app/component-spec.ts` | the zod schema for the requested component list, incl. the duplicate `(block, role, seq)` check |
 | `foundation/` | the OIDC trust that lets CI reach an account at all. Deliberately NOT a block: deployed once by hand with admin credentials, has no `appId`, and must not be requestable. Keeps every block *convention* (context inputs, `applyPlatformTags`, cdk-nag in the entrypoint, `POLICY:` tests) |
 | `lib/require-param.ts` | `requireParam()` — one context value or a failed synth. Absent and empty are both refused; the pattern passed in IS the contract |
 | `scripts/foundation-preflight.sh` | reads a target account read-only and reports bootstrap version, qualifier, execution policies, trusted accounts and any existing GitHub OIDC provider, then prints the deploy command with the flags that account needs. Reports, never prescribes |
-| `blocks/<name>/` | the stack and its constructs — where the policy fence lives |
-| `lib/platform-tags.ts` | `applyPlatformTags()` + `RequiredTagsAspect`, shared by every block |
+| `blocks/<name>/` | the block itself, a **Construct** — where the policy fence lives. Not a Stack: a stack belongs to an app team, which composes several of these |
+| `lib/platform-tags.ts` | `applyPlatformTags()` (app tier), `applyComponentTags()` (component tier) + `RequiredTagsAspect` |
+| `lib/naming.ts` | `composeResourceName()` — `<companyId>-<block>-<appId>-<role>-<env>-<seq>`, plus the `role` and `seq` patterns |
 | `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and validates it against the block's zod schema |
 | `test/<name>.test.ts` | `Template.fromStack()` assertions, incl. the `POLICY:`-prefixed ones |
 | `.github/workflows/ci.yml` | `build` (tsc + tests) and `scan` (proves the entrypoint wires cdk-nag) |
@@ -40,11 +44,12 @@ drift, which is the same reasoning that deleted the catalog's `version:` field.
 ```bash
 npx tsc --noEmit && npm test          # what CI runs
 
-# Synth a block by hand, exactly as cdk-build.yml does it
-npx cdk synth -a "npx ts-node bin/s3.ts" \
+# Synth an app by hand, exactly as cdk-build.yml does it. `components` MUST be on one line:
+# `-c` values are truncated at the first newline, so a pretty-printed array arrives as `[`.
+npx cdk synth -a "npx ts-node app/app.ts" \
   -c account=012514678082 -c region=eu-west-1 -c companyId=up \
-  -c appId=a231 -c role=docs -c env=dev -c blockRef=v0.2.0 -c tags='{}' \
-  -c blockConfig='{"retain":false,"logBucket":"up-s3-logs-dev-01"}'
+  -c appId=a231 -c env=dev -c tags='{}' \
+  -c components='[{"block":"s3","role":"docs","blockRef":"v0.3.0","config":{"retain":false,"logBucket":"up-s3-logs-dev-01"}}]'
 ```
 
 `logBucket` is not optional in practice: the `AwsSolutions-S1` acknowledgement was removed, so a
@@ -113,9 +118,9 @@ npx tsc --noEmit && npm test
 npx cdk synth -a "npx ts-node bin/<name>.ts" -c ...   # read the template AND the nag verdict
 ```
 
-Adding a block means a new `bin/<name>.ts` **and** a new `blocks/<name>/`. The entrypoint name is
-the contract: `cdk-build.yml` synthesizes with `-a "npx ts-node bin/$BLOCK_NAME.ts"`, so the file
-name *is* how a request selects the block.
+Adding a block means a new `blocks/<name>/` **and** an entry in `app/registry.ts`. The registry is
+the contract: `cdk-build.yml` always synthesizes `app/app.ts`, and a block is buildable because it
+is registered, not because a file was saved in a particular directory.
 
 ### 2. Prove it on the real pipeline — before releasing
 
