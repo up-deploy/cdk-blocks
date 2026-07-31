@@ -43,7 +43,7 @@ npx tsc --noEmit && npm test          # what CI runs
 # Synth a block by hand, exactly as cdk-build.yml does it
 npx cdk synth -a "npx ts-node bin/s3.ts" \
   -c account=012514678082 -c region=eu-west-1 -c companyId=up \
-  -c appId=a231 -c env=dev -c blockRef=v0.2.0 -c tags='{}' \
+  -c appId=a231 -c role=docs -c env=dev -c blockRef=v0.2.0 -c tags='{}' \
   -c blockConfig='{"retain":false,"logBucket":"up-s3-logs-dev-01"}'
 ```
 
@@ -121,7 +121,7 @@ name *is* how a request selects the block.
 
 ```bash
 # from the up-platform repo
-scripts/try-block.sh <block> <env> <appId> <your-branch>
+scripts/try-block.sh <block> <env> <appId> <role> <your-branch>
 ```
 
 Runs the actual `cdk-build.yml`: checkout at your ref, synth, cdk-nag, and the `scan` verdict.
