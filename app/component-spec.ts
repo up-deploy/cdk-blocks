@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ROLE_PATTERN, SEQ_PATTERN } from "../lib/naming";
+import { ROLE_PATTERN } from "../lib/naming";
 
 /**
  * What one app asks for: a list of components.
@@ -16,10 +16,13 @@ export const ComponentSpecSchema = z
   .object({
     /** Catalog entry name. Must exist in the registry, or synth fails. */
     block: z.string().regex(/^[a-z][a-z0-9-]*$/, "must be a lowercase catalog name"),
-    /** What this component is for. Name segment and tag. */
+    /**
+     * What this component is for. Name segment, tag, and the ONLY thing separating two
+     * components of the same block. There is deliberately no sequence number: see lib/naming.ts.
+     * `.strict()` means a manifest still carrying `seq` fails here by name rather than being
+     * quietly ignored, which is what a dropped field has to do.
+     */
     role: z.string().regex(ROLE_PATTERN, "must be lowercase, no hyphens, 3-12 characters"),
-    /** Two digits. Omitted means `01`. */
-    seq: z.string().regex(SEQ_PATTERN, "must be exactly two digits, e.g. '01'").optional(),
     /** The catalog's source.ref for this block. Per component: two blocks pin independently. */
     blockRef: z.string().min(1),
     /**
@@ -33,18 +36,19 @@ export const ComponentSpecSchema = z
 export const ComponentListSchema = z
   .array(ComponentSpecSchema)
   .min(1, "an app must request at least one component")
-  // Two components with the same block, role and seq would compose the same resource name.
+  // Two components with the same block and role would compose the same resource name.
   // Caught here rather than at deploy, where it surfaces as a duplicate-name error from AWS.
   .superRefine((components, ctx) => {
     const seen = new Set<string>();
     for (const c of components) {
-      const key = `${c.block}/${c.role}/${c.seq ?? "01"}`;
+      const key = `${c.block}/${c.role}`;
       if (seen.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            `Duplicate component '${key}' — two components with the same block, role and seq ` +
-            `compose the same resource name. Give one a different role, or bump its seq.`,
+            `Duplicate component '${key}' — two components with the same block and role compose ` +
+            `the same resource name. Give one a role that says what it is for, e.g. 'uploads' ` +
+            `or 'docsarchive'.`,
         });
       }
       seen.add(key);

@@ -1,16 +1,20 @@
 /**
  * The platform's resource-naming guarantee, in one place.
  *
- *   <companyId>-<block>-<appId>-<role>-<environment>-<seq>
- *   up         -s3     -a231   -docs  -dev          -01
+ *   <companyId>-<block>-<appId>-<role>-<environment>
+ *   up         -s3     -a231   -docs  -dev
  *
- * `role` says what the resource is FOR, and it is what makes two components of the same
- * block distinguishable inside one app's stack. `seq` separates two components with the
- * same role; a new role starts again at `01`.
+ * `role` says what the resource is FOR, and it is the ONLY thing distinguishing two
+ * components of the same block inside one app's stack. That is deliberate: two components
+ * of the same block serving the same purpose is a naming problem, not a case needing a
+ * counter. An app wanting a second bucket alongside `docs` gives it a role that says what
+ * it is for — `uploads`, `docsarchive` — and the name stays self-describing.
  *
- * `seq` is supplied, never derived from position. If the platform counted components to
- * assign it, deleting the first would renumber the second, and a renamed resource is a
- * DESTROY and CREATE in CloudFormation, not a rename.
+ * So nothing is computed here. A name is a pure function of facts the request already
+ * carries, which means it can be predicted before the request is made and never depends on
+ * what else the app happens to contain. A counter could not promise that: it would have to
+ * be read from the app's current set, and deleting a component would renumber the survivors
+ * — and a renamed resource is a DESTROY and CREATE in CloudFormation, not a rename.
  *
  * Every block composes its name through this function, so the guarantee that tags and cost
  * attribution rely on cannot drift block by block.
@@ -18,11 +22,6 @@
 
 /** Lowercase, no hyphens, 3-12 chars. Hyphen-free keeps each segment visually distinct. */
 export const ROLE_PATTERN = /^[a-z][a-z0-9]{2,11}$/;
-
-/** Two digits. `01` unless the same role already exists in this app and environment. */
-export const SEQ_PATTERN = /^\d{2}$/;
-
-export const DEFAULT_SEQ = "01";
 
 export interface ResourceNameParts {
   /** Tag namespace and name prefix, from config/environments/<env>.yaml. */
@@ -35,13 +34,9 @@ export interface ResourceNameParts {
   readonly role: string;
   /** The environment ring. */
   readonly environment: string;
-  /** Two digits, defaults to `01`. */
-  readonly seq?: string;
 }
 
 export function composeResourceName(parts: ResourceNameParts): string {
-  const seq = parts.seq ?? DEFAULT_SEQ;
-
   if (!ROLE_PATTERN.test(parts.role)) {
     throw new Error(
       `Invalid role '${parts.role}' — must match ${ROLE_PATTERN.source} ` +
@@ -50,12 +45,5 @@ export function composeResourceName(parts: ResourceNameParts): string {
     );
   }
 
-  if (!SEQ_PATTERN.test(seq)) {
-    throw new Error(
-      `Invalid seq '${seq}' — must be two digits, for example '01'. ` +
-        `A second component with the same role is '02'; a different role starts at '01'.`,
-    );
-  }
-
-  return [parts.companyId, parts.block, parts.appId, parts.role, parts.environment, seq].join("-");
+  return [parts.companyId, parts.block, parts.appId, parts.role, parts.environment].join("-");
 }
