@@ -1,7 +1,9 @@
-import { CfnOutput, Duration, RemovalPolicy, Stack, StackProps } from "aws-cdk-lib";
+import { Duration, RemovalPolicy } from "aws-cdk-lib";
 import * as s3 from "aws-cdk-lib/aws-s3";
 import { Construct } from "constructs";
 import { z } from "zod";
+import { composeResourceName } from "../../lib/naming";
+import { applyComponentTags } from "../../lib/platform-tags";
 
 /**
  * What `blockConfig` accepts for this block — the SINGLE definition. `.strict()` rejects
@@ -27,22 +29,49 @@ export const S3ConfigSchema = z
 
 export type S3Config = z.infer<typeof S3ConfigSchema>;
 
-
-export interface S3BucketStackProps extends StackProps {
-  readonly appId: string
-  readonly environment: string
-  readonly companyId: string
-  readonly cfg: S3Config
+export interface S3BucketProps {
+  readonly appId: string;
+  readonly environment: string;
+  readonly companyId: string;
+  /** What this bucket is for, e.g. `docs`. Name segment and tag. */
+  readonly role: string;
+  /** Two digits. `01` unless this app already has a bucket with the same role. */
+  readonly seq?: string;
+  /** Which version of this block built the resource. Component-tier tag. */
+  readonly blockRef: string;
+  readonly cfg: S3Config;
 }
 
-
-
-export class S3BucketStack extends Stack {
+/**
+ * A block is a CONSTRUCT, not a stack. One stack belongs to one app team and holds every
+ * component that team has asked for, so the stack identity cannot belong to any single block.
+ * The policy fence, the name composition and the outputs travel with the construct.
+ */
+export class S3Bucket extends Construct {
   public readonly bucket: s3.Bucket;
-  constructor(scope: Construct, id: string, props: S3BucketStackProps) {
-    super(scope, id, props);
 
-    const bucketName = props.companyId + "-s3-" + props.appId + "-" + props.environment + "-01"
+  constructor(scope: Construct, id: string, props: S3BucketProps) {
+    super(scope, id);
+
+    // The component tags itself. An app stack composes several of these, and a component that
+    // relied on its caller to say which block built it would eventually meet a caller that forgot.
+    applyComponentTags(this, {
+      companyId: props.companyId,
+      block: "s3",
+      blockRef: props.blockRef,
+      role: props.role,
+    });
+
+    // The platform's naming guarantee lives in lib/naming.ts, so `role` and `seq` are validated
+    // once for every block rather than re-checked here.
+    const bucketName = composeResourceName({
+      companyId: props.companyId,
+      block: "s3",
+      appId: props.appId,
+      role: props.role,
+      environment: props.environment,
+      seq: props.seq,
+    });
 
     // The block composes the name, so the block owns its legality. S3 names are
     // global and CloudFormation only fails at deploy time; catching it here turns
@@ -85,16 +114,6 @@ export class S3BucketStack extends Stack {
         },
       ],
       removalPolicy: props.cfg.retain ? RemovalPolicy.RETAIN : RemovalPolicy.DESTROY,
-    });
-
-
-    new CfnOutput(this, "BucketName", {
-      value: this.bucket.bucketName,
-      description: "Name of the bucket",
-    });
-    new CfnOutput(this, "BucketArn", {
-      value: this.bucket.bucketArn,
-      description: "ARN of the bucket",
     });
   }
 }
