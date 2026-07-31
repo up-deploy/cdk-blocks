@@ -21,16 +21,24 @@
 #
 # Read-only. Every call is a Describe/Get/List; nothing here changes anything.
 #
-# Usage: scripts/foundation-preflight.sh <aws-profile> <region> [toolkit-stack-name]
+# Usage: scripts/foundation-preflight.sh <aws-profile> <region> [deploy-role] [toolkit-stack-name]
+#
+# deploy-role is optional and names the role the foundation will CREATE (e.g. UppDeployRole-dev).
+# Pass it and preflight refuses to proceed if that role already exists; omit it and that check
+# is skipped rather than guessed.
 #
 # Exit 0 = ready to deploy, and the command to run is printed at the end.
 # Exit 1 = a hard stop, with the remediation named.
 
 set -euo pipefail
 
-PROFILE="${1:?usage: foundation-preflight.sh <aws-profile> <region> [toolkit-stack-name]}"
-REGION="${2:?usage: foundation-preflight.sh <aws-profile> <region> [toolkit-stack-name]}"
-TOOLKIT_STACK="${3:-CDKToolkit}"
+PROFILE="${1:?usage: foundation-preflight.sh <aws-profile> <region> [deploy-role] [toolkit-stack-name]}"
+REGION="${2:?usage: foundation-preflight.sh <aws-profile> <region> [deploy-role] [toolkit-stack-name]}"
+DEPLOY_ROLE="${3:-}"
+TOOLKIT_STACK="${4:-CDKToolkit}"
+
+# The stack name the foundation entrypoint deploys under.
+FOUNDATION_STACK="Foundation"
 
 # CDK's own thresholds, from aws-cdk-lib's DefaultStackSynthesizer. Below 6 the CLI
 # refuses to deploy at all; below 8 there is no lookup role for it to use.
@@ -152,6 +160,43 @@ if [ -n "$PROVIDER_ARN" ] && [ "$PROVIDER_ARN" != "None" ]; then
     The role would deploy correctly and fail only when a workflow tries to use it. Fix:
     aws iam add-client-id-to-open-id-connect-provider --profile $PROFILE \\
       --open-id-connect-provider-arn $PROVIDER_ARN --client-id $STS_AUDIENCE"
+  fi
+fi
+
+# ---------------------------------------------------------------------------
+# 5. Would this deploy collide with something already there?
+#    Added 2026-07-31 after both had to be checked BY HAND before the first real
+#    deploy. Either one fails the deploy with AlreadyExists once CloudFormation is
+#    already running, which is the expensive moment to find out. `deployRole` is
+#    optional: it names the role the foundation will create, and callers that do not
+#    pass it simply skip this check rather than being refused.
+# ---------------------------------------------------------------------------
+# Stack first, because it decides how to read the role. A role that exists BECAUSE the
+# foundation created it is not a collision, it is an update; a role that exists WITHOUT the
+# stack is, and CloudFormation only discovers that partway through a create.
+FOUNDATION_EXISTS="no"
+if STACK_STATUS="$(aws_ cloudformation describe-stacks --stack-name "$FOUNDATION_STACK" \
+    --query 'Stacks[0].StackStatus' --output text 2>/dev/null)"; then
+  case "$STACK_STATUS" in
+    ROLLBACK_COMPLETE|ROLLBACK_FAILED|CREATE_FAILED|DELETE_FAILED)
+      stop "Stack '$FOUNDATION_STACK' exists in state $STACK_STATUS and cannot be updated.
+    A stack left in this state has to be deleted before it can be created again."
+      ;;
+    *)
+      FOUNDATION_EXISTS="yes"
+      note "Stack '$FOUNDATION_STACK' already exists ($STACK_STATUS), so this run is an UPDATE, not a create."
+      ;;
+  esac
+fi
+
+if [ -n "$DEPLOY_ROLE" ] && aws_ iam get-role --role-name "$DEPLOY_ROLE" >/dev/null 2>&1; then
+  if [ "$FOUNDATION_EXISTS" = "yes" ]; then
+    note "Role $DEPLOY_ROLE exists and belongs to '$FOUNDATION_STACK'. Expected for an update."
+  else
+    stop "Role $DEPLOY_ROLE already exists, but stack '$FOUNDATION_STACK' does not.
+    The foundation CREATES that role, so a create would fail with AlreadyExists partway through.
+    Either it was deployed under a different stack name, or the name collides with an unrelated
+    role. Check:  aws iam get-role --role-name $DEPLOY_ROLE --profile $PROFILE"
   fi
 fi
 

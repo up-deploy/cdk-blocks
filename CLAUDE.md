@@ -86,12 +86,23 @@ A block is a unit of *release*, so its public surface has to be stable and small
 carries the tags. Both are protected: PR required, `build` + `scan` + `naming` must be green,
 no force-push, no deletion, **zero bypass actors**.
 
-| Branch | From | Merges into | Merge style |
-|---|---|---|---|
-| `feature/*` | `develop` | `develop` | squash |
-| `chore/*`, `docs/*` | `develop` | `develop` | squash |
-| `release/*` | `develop` | `main` **and back into `develop`** | **merge commit** |
-| `hotfix/*` | `main` | `main` **and back into `develop`** | **merge commit** |
+| Branch | From | Merges into | Merge style | Enforced? |
+|---|---|---|---|---|
+| `feature/*` | `develop` | `develop` | squash *(preferred)* | no — `develop` permits both |
+| `chore/*`, `docs/*` | `develop` | `develop` | squash *(preferred)* | no — `develop` permits both |
+| `release/*` | `develop` | `main` **and back into `develop`** | **merge commit** | **yes** — `main` permits merge only |
+| `hotfix/*` | `main` | `main` **and back into `develop`** | **merge commit** | **yes** — `main` permits merge only |
+
+**Read the last column before assuming the table is a rule.** Verified 2026-07-31 against the live
+rulesets: `protect_develop` (`19626985`) allows `["merge","squash"]`, `protect_main_release_style`
+(`19666967`) allows `["merge"]`. So squash on a `feature/*` is a **convention** the server does not
+enforce, and PR **#23** landed on `develop` as a merge commit without breaking anything. The
+merge-commit requirement on `main` is real and enforced.
+
+Two consequences worth keeping straight. A squashed `feature/*` gives `develop` a tidy history, which
+is why it stays the preference. And because #23 was a merge commit, its branch head is still reachable
+from `develop`, whereas a squash would have orphaned it — which matters if anything recorded that
+commit's SHA.
 
 Branch names are enforced server-side — anything off that allowlist is refused at `git push` with
 `GH013`. `feat/`, `fix/` and `ci/` are **retired**; ordinary bug fixes are `feature/`, and
