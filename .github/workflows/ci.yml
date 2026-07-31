@@ -57,9 +57,24 @@ jobs:
             # encryption), and the cdk-nag compliance-gate suite.
             - name: test
               run: npm test
-    # Proves the ENTRYPOINT still wires the compliance gate — which the jest test cannot,
-    # because the test runs cdk-nag itself. Renders the same verdict panel as the platform's
-    # scan job. Inputs are CI placeholders: this scans the block, not a real request.
+    # Proves the ENTRYPOINTS still wire the compliance gate — which the jest tests cannot,
+    # because a test runs cdk-nag itself. Renders the same verdict panel as the platform's
+    # scan job. Inputs are CI placeholders: this scans the code, not a real request.
+    #
+    # EVERY entrypoint gets scanned, not just the app. Until 2026-07-31 this job synthed
+    # the block entrypoint and nothing else, so deleting the cdk-nag registration from
+    # `foundation/oidc.ts` left the PR GREEN — the exact hole this job exists to close,
+    # sitting on the one stack that needs it most. The foundation is deployed by hand and
+    # never passes through the platform's request-path scan, so this job is its ONLY
+    # second pair of eyes.
+    #
+    # Two steps rather than a matrix: the job name `scan` is the required-check contract,
+    # and a matrix renames the check to `scan (app)` / `scan (foundation)`, so the ruleset
+    # would wait forever on a check that no longer reports. Same failure class as line 30.
+    #
+    # Each entrypoint writes its own output dir under the already-ignored `cdk.out/`,
+    # because scan-verdict.sh reads `validation-report.json` from the dir it is given and
+    # a shared dir would let the second synth overwrite the first one's evidence.
     scan:
         runs-on: ubuntu-latest
         timeout-minutes: 15
@@ -78,21 +93,53 @@ jobs:
             # continue-on-error so a violation (synth exits 1) does not kill the job before
             # the panel renders. The verdict is derived from the report below, not from this
             # step's exit code — the report is the authority, as in the platform's scan.
-            - name: synth via the block entrypoint
+            #
+            # ONE LINE. `-c` context values are truncated at the first newline, so a
+            # pretty-printed JSON array arrives as `[` and fails as malformed JSON.
+            #
+            # TWO components of the SAME block on purpose. One would synth happily while the
+            # per-component naming, tagging and output scoping were all broken, because a single
+            # component collides with nothing. The second one is the test.
+            - name: synth via the app entrypoint
               continue-on-error: true
               run: |
-                npx cdk synth -a "npx ts-node bin/s3.ts" \
+                npx cdk synth -a "npx ts-node app/app.ts" -o cdk.out/app \
                   -c account=111111111111 -c region=eu-west-1 -c companyId=up \
-                  -c appId=ci00 -c env=dev -c blockRef=ci \
-                  -c blockConfig='{"retain":false,"logBucket":"ci-log-bucket"}' \
-                  -c tags='{}' \
-                  1>/dev/null 2>synth.log
+                  -c appId=ci00 -c env=dev -c tags='{}' \
+                  -c components='[{"block":"s3","role":"cidocs","blockRef":"ci","config":{"retain":false,"logBucket":"ci-log-bucket"}},{"block":"s3","role":"ciups","blockRef":"ci","config":{"retain":true,"logBucket":"ci-log-bucket"}}]' \
+                  1>/dev/null 2>synth-app.log
+
+            # The foundation takes no appId and no blockConfig: it is not a block, it is
+            # the trust that lets CI reach an account at all. The github* values are
+            # placeholders that satisfy the entrypoint's patterns; the real ones are
+            # supplied at deploy time and never committed, since this repo is public.
+            - name: synth via the foundation entrypoint
+              continue-on-error: true
+              run: |
+                npx cdk synth -a "npx ts-node foundation/oidc.ts" -o cdk.out/foundation \
+                  -c account=111111111111 -c region=eu-west-1 -c companyId=up \
+                  -c env=dev -c blockRef=ci -c tags='{}' \
+                  -c githubOrg=ci-org -c githubRepo=ci-repo -c githubBranch=main \
+                  1>/dev/null 2>synth-foundation.log
 
             # The verdict logic lives in scripts/scan-verdict.sh — ONE source, shared
             # with up-platform's scan job, which consumes it from this repo's main.
-            - name: scan
+            #
+            # Sequential and fail-closed on purpose: the first failing verdict stops the
+            # job, so a red block hides the foundation's verdict. The alternative was
+            # continue-on-error plus an aggregate gate, which is how a workflow ends up
+            # reporting success while something inside it failed. This repo has paid for
+            # that twice already.
+            - name: scan (app)
               env:
-                SCAN_BLOCK: s3
+                SCAN_BLOCK: app
                 SCAN_SOURCE: ${{ github.repository }}@${{ github.sha }}
-                SCAN_ENVIRONMENT: block self-scan (CI placeholder inputs)
-              run: scripts/scan-verdict.sh cdk.out synth.log
+                SCAN_ENVIRONMENT: app self-scan (CI placeholder inputs)
+              run: scripts/scan-verdict.sh cdk.out/app synth-app.log
+
+            - name: scan (foundation)
+              env:
+                SCAN_BLOCK: foundation
+                SCAN_SOURCE: ${{ github.repository }}@${{ github.sha }}
+                SCAN_ENVIRONMENT: foundation self-scan (CI placeholder inputs)
+              run: scripts/scan-verdict.sh cdk.out/foundation synth-foundation.log

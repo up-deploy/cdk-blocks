@@ -1,12 +1,12 @@
 {
   "name": "cdk-blocks",
-  "version": "0.3.0",
+  "version": "0.4.0",
   "description": "CDK building blocks for up-platform — one deployable infrastructure block per entry, consumed at pinned tags",
   "private": true,
   "scripts": {
     "build": "tsc --noEmit",
     "test": "jest",
-    "synth:s3": "cdk synth -a \"npx ts-node bin/s3.ts\""
+    "synth": "cdk synth -a \"npx ts-node app/app.ts\""
   },
   "license": "Apache-2.0",
   "devDependencies": {

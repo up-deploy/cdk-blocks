@@ -1,0 +1,9 @@
+compliance: pack=AwsSolutions cdk-nag=3.0.1
+WARNING Unable to add necessary logging permissions to imported target bucket: App/S3Cidocs01/LogBucket (Construct Annotations)
+   App/S3Cidocs01/Bucket
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-s3:accessLogsPolicyNotAdded'
+
+WARNING Unable to add necessary logging permissions to imported target bucket: App/S3Ciups01/LogBucket (Construct Annotations)
+   App/S3Ciups01/Bucket
+   Acknowledge with 'Construct-Annotations::@aws-cdk/aws-s3:accessLogsPolicyNotAdded'
+81 feature flags are not configured. Run 'cdk flags --unstable=flags' to learn more.

@@ -1,6 +1,7 @@
 import { App, AspectPriority, Aspects } from "aws-cdk-lib";
 import { Annotations, Match, Template } from "aws-cdk-lib/assertions";
-import { S3BucketStack, S3ConfigSchema } from "../blocks/s3/s3-stack";
+import { S3ConfigSchema } from "../blocks/s3/s3-bucket";
+import { AppStack } from "../app/app-stack";
 import { parseBlockConfig } from "../lib/block-config";
 import { applyPlatformTags, parseExtraTags, RequiredTagsAspect } from "../lib/platform-tags";
 import { AwsSolutionsChecks } from "cdk-nag";
@@ -8,11 +9,11 @@ import { AwsSolutionsChecks } from "cdk-nag";
 
 describe("s3 block (private, secure-by-default bucket)", () => {
   const app = new App();
-  const stack = new S3BucketStack(app, "up-s3-test-dev", {
+  const stack = new AppStack(app, "up-s3-test-dev", {
     environment: "dev",
     appId: "0asd3",
     companyId: "up",
-    cfg: {logBucket: "somelogbuckeg"}
+    components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "somelogbuckeg" } }],
   });
   const template = Template.fromStack(stack);
 
@@ -58,14 +59,17 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     }
   });
 
-  test("declares the outputs the catalog promises", () => {
-    template.hasOutput("BucketName", {});
-    template.hasOutput("BucketArn", {});
+  // The catalog still declares `outputs: [BucketName, BucketArn]`, but one stack can now hold
+  // two buckets, so the declared name is a SUFFIX under the component's role and seq. Without
+  // that, two components would both claim `BucketName` and the second would overwrite the first.
+  test("declares the outputs the catalog promises, scoped to the component", () => {
+    template.hasOutput("Docs01BucketName", {});
+    template.hasOutput("Docs01BucketArn", {});
   });
 
   test("the block composes the bucket name, the caller only supplies appId", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-0asd3-dev-01",
+      BucketName: "up-s3-0asd3-docs-dev-01",
     });
   });
 
@@ -108,7 +112,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   test("access logs are prefixed with the bucket's own name", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       LoggingConfiguration: Match.objectLike({
-        LogFilePrefix: "up-s3-0asd3-dev-01/",
+        LogFilePrefix: "up-s3-0asd3-docs-dev-01/",
       }),
     });
   });
@@ -119,11 +123,11 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     const longApp = new App();
     expect(
       () =>
-        new S3BucketStack(longApp, "up-s3-too-long", {
+        new AppStack(longApp, "up-s3-too-long", {
           environment: "dev",
           appId: "a".repeat(60),
           companyId: "up",
-          cfg: {},
+          components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
         }),
     ).toThrow(/not a legal S3 name/);
   });
@@ -136,11 +140,11 @@ describe("s3 block (private, secure-by-default bucket)", () => {
 
   test("retain: true gives DeletionPolicy Retain, from the same block", () => {
     const prodApp = new App();
-    const prodStack = new S3BucketStack(prodApp, "up-s3-test-prod", {
+    const prodStack = new AppStack(prodApp, "up-s3-test-prod", {
       environment: "prod",
       appId: "0asd3",
       companyId: "up",
-      cfg: { retain: true },
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: { retain: true } }],
     });
 
     Template.fromStack(prodStack).hasResource("AWS::S3::Bucket", {
@@ -160,18 +164,16 @@ describe("platform tags (docs/tagging-schema.md)", () => {
 
   function tagged(extra?: Record<string, unknown>) {
     const app = new App();
-    const stack = new S3BucketStack(app, "up-s3-test-dev", {
+    const stack = new AppStack(app, "up-s3-test-dev", {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
-      cfg: {},
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
     });
     applyPlatformTags(app, {
       companyId: "up",
       appId: "0asd3",
       environment: "dev",
-      block: "s3",
-      blockRef: "v0.1.0",
       extra,
     });
     return { app, stack };
@@ -222,11 +224,11 @@ describe("platform tags (docs/tagging-schema.md)", () => {
 
   test("RequiredTagsAspect reports an error when a required tag is missing", () => {
     const app = new App();
-    const stack = new S3BucketStack(app, "up-s3-untagged-dev", {
+    const stack = new AppStack(app, "up-s3-untagged-dev", {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
-      cfg: {},
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
     });
     // No applyPlatformTags call — this is the hole the aspect exists to catch.
     Aspects.of(app).add(new RequiredTagsAspect("up"), {
@@ -256,14 +258,16 @@ describe("platform tags (docs/tagging-schema.md)", () => {
 describe("compliance gate (cdk-nag AwsSolutions)", () => {
   test("POLICY: the s3 block has no AwsSolutions violations", () => {
     const app = new App();
-    const stack = new S3BucketStack(app, "S3", {
+    const stack = new AppStack(app, "S3", {
       env: { account: "012514678082", region: "eu-west-1" },
       companyId: "up",
       appId: "a231",
       environment: "dev",
       // logging is mandatory now (the S1 acknowledgement was removed), so a compliant
-      // bucket MUST have a destination — an empty cfg would legitimately fail S1.
-      cfg: { logBucket: "up-s3-logs-dev-01" },
+      // bucket MUST have a destination — an empty config would legitimately fail S1.
+      components: [
+        { block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
+      ],
     });
 
     const report = new AwsSolutionsChecks(app).validateScope(stack);
