@@ -18,7 +18,6 @@ export interface ComponentContext {
   readonly appId: string;
   readonly environment: string;
   readonly role: string;
-  readonly seq?: string;
   readonly blockRef: string;
   /** The block's config blob, still unparsed — only the block knows its schema. */
   readonly config: unknown;
@@ -48,7 +47,6 @@ export const REGISTRY: Readonly<Record<string, ComponentFactory>> = {
       appId: ctx.appId,
       environment: ctx.environment,
       role: ctx.role,
-      seq: ctx.seq,
       blockRef: ctx.blockRef,
       cfg,
     });

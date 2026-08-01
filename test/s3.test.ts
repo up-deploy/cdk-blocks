@@ -59,17 +59,17 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     }
   });
 
-  // The catalog still declares `outputs: [BucketName, BucketArn]`, but one stack can now hold
-  // two buckets, so the declared name is a SUFFIX under the component's role and seq. Without
-  // that, two components would both claim `BucketName` and the second would overwrite the first.
+  // The catalog still declares `outputs: [BucketName, BucketArn]`, but one stack can hold two
+  // buckets, so the declared name is a SUFFIX under the component's role. Without that, two
+  // components would both claim `BucketName` and the second would overwrite the first.
   test("declares the outputs the catalog promises, scoped to the component", () => {
-    template.hasOutput("Docs01BucketName", {});
-    template.hasOutput("Docs01BucketArn", {});
+    template.hasOutput("DocsBucketName", {});
+    template.hasOutput("DocsBucketArn", {});
   });
 
   test("the block composes the bucket name, the caller only supplies appId", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-0asd3-docs-dev-01",
+      BucketName: "up-s3-0asd3-docs-dev",
     });
   });
 
@@ -112,7 +112,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   test("access logs are prefixed with the bucket's own name", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       LoggingConfiguration: Match.objectLike({
-        LogFilePrefix: "up-s3-0asd3-docs-dev-01/",
+        LogFilePrefix: "up-s3-0asd3-docs-dev/",
       }),
     });
   });
