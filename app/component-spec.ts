@@ -18,9 +18,8 @@ export const ComponentSpecSchema = z
     block: z.string().regex(/^[a-z][a-z0-9-]*$/, "must be a lowercase catalog name"),
     /**
      * What this component is for. Name segment, tag, and the ONLY thing separating two
-     * components of the same block. There is deliberately no sequence number: see lib/naming.ts.
-     * `.strict()` means a manifest still carrying `seq` fails here by name rather than being
-     * quietly ignored, which is what a dropped field has to do.
+     * components of the same block. There is deliberately no sequence number behind it —
+     * see lib/naming.ts for why the name is a pure function of the request.
      */
     role: z.string().regex(ROLE_PATTERN, "must be lowercase, no hyphens, 3-12 characters"),
     /** The catalog's source.ref for this block. Per component: two blocks pin independently. */

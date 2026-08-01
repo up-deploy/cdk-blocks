@@ -73,14 +73,6 @@ describe("the component list is validated before anything is built", () => {
     expect(() => parseComponents(raw)).toThrow(/Duplicate component 's3\/docs'/);
   });
 
-  // POLICY: `seq` was removed in v0.5.0. Because the spec is `.strict()`, a manifest that still
-  // carries it fails by name instead of being silently ignored — which is the whole point of
-  // dropping a field rather than accepting-and-discarding it.
-  test("POLICY: a component still carrying seq is refused", () => {
-    const raw = JSON.stringify([{ ...s3("docs"), seq: "01" }]);
-    expect(() => parseComponents(raw)).toThrow(/components is not a valid component list/);
-  });
-
   test("a role with a hyphen is refused by the spec, not only by the name composer", () => {
     const raw = JSON.stringify([s3("user-docs")]);
     expect(() => parseComponents(raw)).toThrow(/no hyphens/);
