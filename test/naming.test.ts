@@ -1,6 +1,6 @@
 import { App } from "aws-cdk-lib";
 import { Match, Template } from "aws-cdk-lib/assertions";
-import { composeResourceName, DEFAULT_SEQ } from "../lib/naming";
+import { composeResourceName } from "../lib/naming";
 import { AppStack } from "../app/app-stack";
 
 describe("resource naming (lib/naming.ts)", () => {
@@ -12,23 +12,22 @@ describe("resource naming (lib/naming.ts)", () => {
     environment: "dev",
   };
 
-  test("composes <companyId>-<block>-<appId>-<role>-<env>-<seq>", () => {
-    expect(composeResourceName({ ...base, seq: "01" })).toBe("up-s3-a231-docs-dev-01");
+  test("composes <companyId>-<block>-<appId>-<role>-<env>", () => {
+    expect(composeResourceName(base)).toBe("up-s3-a231-docs-dev");
   });
 
-  test("seq defaults to 01", () => {
-    expect(composeResourceName(base)).toBe(`up-s3-a231-docs-dev-${DEFAULT_SEQ}`);
-    expect(DEFAULT_SEQ).toBe("01");
+  // POLICY: `role` is the ONLY thing distinguishing two components of the same block inside one
+  // app's stack. There is no counter behind it, so two components serving the same purpose is a
+  // naming problem the requester fixes, not one the platform numbers around.
+  test("POLICY: a different role is what makes a different name", () => {
+    expect(composeResourceName({ ...base, role: "uploads" })).toBe("up-s3-a231-uploads-dev");
   });
 
-  test("a second component with the same role is 02", () => {
-    expect(composeResourceName({ ...base, seq: "02" })).toBe("up-s3-a231-docs-dev-02");
-  });
-
-  // POLICY: a different role restarts the sequence, so the pair (role, seq) is what
-  // distinguishes two components of the same block inside one app's stack.
-  test("POLICY: a different role starts again at 01", () => {
-    expect(composeResourceName({ ...base, role: "uploads" })).toBe("up-s3-a231-uploads-dev-01");
+  // POLICY: the name is a PURE FUNCTION of facts the request already carries. It can be predicted
+  // before the request is made and never depends on what else the app happens to contain. Five
+  // segments, no sixth: this goes red the day someone reintroduces a derived counter.
+  test("POLICY: the name carries no sequence segment", () => {
+    expect(composeResourceName(base).split("-")).toHaveLength(5);
   });
 
   // POLICY: the segments stay visually distinct. A hyphen inside a role would read as a
@@ -40,13 +39,6 @@ describe("resource naming (lib/naming.ts)", () => {
   test("an uppercase or too-short role is refused", () => {
     expect(() => composeResourceName({ ...base, role: "Docs" })).toThrow(/Invalid role/);
     expect(() => composeResourceName({ ...base, role: "d" })).toThrow(/Invalid role/);
-  });
-
-  // POLICY: seq is supplied, never derived from position. A single digit is refused so that
-  // `1` and `01` cannot both exist and name two different resources.
-  test("POLICY: seq must be exactly two digits", () => {
-    expect(() => composeResourceName({ ...base, seq: "1" })).toThrow(/Invalid seq/);
-    expect(() => composeResourceName({ ...base, seq: "001" })).toThrow(/Invalid seq/);
   });
 });
 
@@ -77,7 +69,7 @@ describe("role as a tag, not only a name segment", () => {
   // so a component added to an app stack cannot arrive unlabelled.
   test("POLICY: component tags do not depend on the caller remembering", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-a231-docs-dev-01",
+      BucketName: "up-s3-a231-docs-dev",
     });
   });
 });

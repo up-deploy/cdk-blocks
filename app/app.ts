@@ -22,8 +22,8 @@ const companyId = requireParam("Company Id", app.node.tryGetContext("companyId")
 const components = parseComponents(app.node.tryGetContext("components"));
 const extra = parseExtraTags(app.node.tryGetContext("tags"));
 
-// One stack per app per environment. The name carries no `seq`: a second stack for the same app
-// and ring is not a thing the platform creates, and a name that implied otherwise would invite it.
+// One stack per app per environment. A second stack for the same app and ring is not a thing the
+// platform creates, and a name that implied otherwise would invite it.
 const stackName = `${companyId}-${appId}-${environment}`;
 
 new AppStack(app, "App", {

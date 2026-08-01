@@ -33,10 +33,8 @@ export interface S3BucketProps {
   readonly appId: string;
   readonly environment: string;
   readonly companyId: string;
-  /** What this bucket is for, e.g. `docs`. Name segment and tag. */
+  /** What this bucket is for, e.g. `docs`. Name segment, tag, and the whole discriminator. */
   readonly role: string;
-  /** Two digits. `01` unless this app already has a bucket with the same role. */
-  readonly seq?: string;
   /** Which version of this block built the resource. Component-tier tag. */
   readonly blockRef: string;
   readonly cfg: S3Config;
@@ -62,15 +60,14 @@ export class S3Bucket extends Construct {
       role: props.role,
     });
 
-    // The platform's naming guarantee lives in lib/naming.ts, so `role` and `seq` are validated
-    // once for every block rather than re-checked here.
+    // The platform's naming guarantee lives in lib/naming.ts, so `role` is validated once for
+    // every block rather than re-checked here.
     const bucketName = composeResourceName({
       companyId: props.companyId,
       block: "s3",
       appId: props.appId,
       role: props.role,
       environment: props.environment,
-      seq: props.seq,
     });
 
     if (!/^[a-z0-9][a-z0-9-]{1,61}[a-z0-9]$/.test(bucketName)) {
