@@ -28,6 +28,7 @@ Do not implement several steps ahead, and do not write code he has not asked for
 | `lib/platform-tags.ts` | `applyPlatformTags()` (app tier), `applyComponentTags()` (component tier) + `RequiredTagsAspect` |
 | `lib/naming.ts` | `composeResourceName()` — `<companyId>-<block>-<appId>-<role>-<env>`, plus the `role` pattern. **No counter**: `role` is the whole discriminator, so a name is a pure function of the request and never depends on what else the app holds |
 | `lib/block-config.ts` | `parseBlockConfig()` — parses the config blob and validates it against the block's zod schema |
+| `lib/outputs.ts` | `publishComponentOutputs()` — writes the DECLARED subset of a component's outputs to SSM at `/<companyId>/<env>/<appId>/<block>/<role>/<Output>`, so one project can hand a live value to another. **Not an inventory**: current values only, nothing else. A component publishes **nothing** by default; what reaches SSM is the catalog's `publishes:`, arriving inside the component spec so this repo still knows nothing about catalogs |
 | `test/<name>.test.ts` | `Template.fromStack()` assertions, incl. the `POLICY:`-prefixed ones |
 | `.github/workflows/ci.yml` | `build` (tsc + tests) and `scan` (proves the entrypoint wires cdk-nag) |
 | `.github/workflows/naming.yml` | `naming` — branch slug, Conventional-Commits PR title, PR direction |

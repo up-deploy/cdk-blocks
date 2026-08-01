@@ -26,6 +26,16 @@ export const ComponentSpecSchema = z
     /** The catalog's source.ref for this block. Per component: two blocks pin independently. */
     blockRef: z.string().min(1),
     /**
+     * Which of this component's outputs may be consumed by ANOTHER project, from the
+     * catalog's `publishes:`. Absent means nothing is published, which is the default and
+     * what every app block should have — see lib/outputs.ts.
+     *
+     * It arrives in the request rather than being read from the catalog here, because this
+     * repo knows nothing about catalogs: the platform decides what is publishable, the block
+     * only writes what it is told to.
+     */
+    publishes: z.array(z.string().min(1)).optional(),
+    /**
      * The block's own config blob, class 2, from the environment file. Left as `unknown` here
      * because only the block knows its schema — each factory parses it with its own.
      */
