@@ -32,13 +32,26 @@ export class AppStack extends Stack {
       // guarantees a unique resource name, so reusing it keeps the two from disagreeing.
       const componentId = `${pascal(spec.block)}${pascal(spec.role)}`;
 
-      const outputs = factoryFor(spec.block)(this, componentId, {
+      const { resourceName, outputs } = factoryFor(spec.block)(this, componentId, {
         companyId: props.companyId,
         appId: props.appId,
         environment: props.environment,
         role: spec.role,
         blockRef: spec.blockRef,
         config: spec.config,
+      });
+
+      // The composed name, as an output, so the platform can READ it instead of recomputing it.
+      // It is what a requester is shown as "what you got", and the only honest source for that is
+      // the thing that built it — a second implementation of the formula in the platform would
+      // agree until one of the two changed.
+      //
+      // Not routed through `outputs`: those are the block's declared public surface, listed in the
+      // catalog and asserted by tests. This is the platform's own plumbing and does not belong in
+      // a contract app teams read.
+      new CfnOutput(this, `${pascal(spec.role)}ResourceName`, {
+        value: resourceName,
+        description: `The composed name of the ${spec.block} component '${spec.role}'`,
       });
 
       // The catalog declares output names per block (`outputs: [BucketName, BucketArn]`), and

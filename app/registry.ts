@@ -23,16 +23,31 @@ export interface ComponentContext {
   readonly config: unknown;
 }
 
+export interface ComponentResult {
+  /**
+   * The composed resource name, as a plain string.
+   *
+   * Returned rather than left for the platform to recompute. The platform holds every segment
+   * (`companyId`, `block`, `appId`, `role`, `env`) and could rebuild it in three lines of bash —
+   * which would put a second copy of `lib/naming.ts`'s formula outside this repo, agreeing with
+   * the first until one of them changed. The block already composed it; handing it back costs
+   * nothing and leaves exactly one definition.
+   */
+  readonly resourceName: string;
+  /** The values worth exposing as stack outputs, keyed by the names the catalog declares. */
+  readonly outputs: Record<string, string>;
+}
+
 /**
- * Builds one component and returns the values worth exposing as stack outputs, keyed by the
- * names the catalog declares in `outputs:`. The stack, not the component, decides how those
- * names are made unique.
+ * Builds one component and returns its name plus the values worth exposing as stack outputs,
+ * keyed by the names the catalog declares in `outputs:`. The stack, not the component, decides
+ * how those names are made unique.
  */
 export type ComponentFactory = (
   scope: Construct,
   id: string,
   ctx: ComponentContext,
-) => Record<string, string>;
+) => ComponentResult;
 
 export const REGISTRY: Readonly<Record<string, ComponentFactory>> = {
   s3: (scope, id, ctx) => {
@@ -52,8 +67,11 @@ export const REGISTRY: Readonly<Record<string, ComponentFactory>> = {
     });
 
     return {
-      BucketName: component.bucket.bucketName,
-      BucketArn: component.bucket.bucketArn,
+      resourceName: component.resourceName,
+      outputs: {
+        BucketName: component.bucket.bucketName,
+        BucketArn: component.bucket.bucketArn,
+      },
     };
   },
 };

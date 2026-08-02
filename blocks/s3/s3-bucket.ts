@@ -48,6 +48,16 @@ export interface S3BucketProps {
 export class S3Bucket extends Construct {
   public readonly bucket: s3.Bucket;
 
+  /**
+   * The composed name, as a plain string.
+   *
+   * Exposed separately from `bucket.bucketName` because that is a CDK token: it resolves to the
+   * literal here only because the name was set explicitly, and a block that ever let CloudFormation
+   * generate the name would return an unresolved `${Token[...]}` instead. The platform puts this
+   * value in front of a human, so it has to be the name and not a promise of one.
+   */
+  public readonly resourceName: string;
+
   constructor(scope: Construct, id: string, props: S3BucketProps) {
     super(scope, id);
 
@@ -77,6 +87,8 @@ export class S3Bucket extends Construct {
           `Check appId, companyId and environment.`,
       );
     }
+
+    this.resourceName = bucketName;
 
     const logBucket = props.cfg.logBucket
       ? s3.Bucket.fromBucketName(this, "LogBucket", props.cfg.logBucket)
