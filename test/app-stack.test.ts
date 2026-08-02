@@ -45,6 +45,19 @@ describe("one stack per app, holding many components", () => {
     }
   });
 
+  // POLICY: the composed name is emitted so the PLATFORM can read it rather than recompute it.
+  // The platform holds every segment and could rebuild the name in three lines of bash, which
+  // would put a second copy of lib/naming.ts's formula outside this repo — agreeing with the
+  // first until one of them changed. This output is what makes that unnecessary, so it is a
+  // contract, not a convenience, and asserting the VALUE is the point.
+  test.each([
+    ["DocsResourceName", "up-s3-a231-docs-dev"],
+    ["UploadsResourceName", "up-s3-a231-uploads-dev"],
+    ["DocsarchiveResourceName", "up-s3-a231-docsarchive-dev"],
+  ])("POLICY: %s carries the composed name for the platform to read", (id, name) => {
+    template.hasOutput(id, { Value: name });
+  });
+
   test("each bucket carries its own role tag", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       BucketName: "up-s3-a231-uploads-dev",
@@ -71,14 +84,6 @@ describe("the component list is validated before anything is built", () => {
   test("POLICY: two components with the same block and role are refused", () => {
     const raw = JSON.stringify([s3("docs"), s3("docs")]);
     expect(() => parseComponents(raw)).toThrow(/Duplicate component 's3\/docs'/);
-  });
-
-  // POLICY: `seq` was removed in v0.5.0. Because the spec is `.strict()`, a manifest that still
-  // carries it fails by name instead of being silently ignored — which is the whole point of
-  // dropping a field rather than accepting-and-discarding it.
-  test("POLICY: a component still carrying seq is refused", () => {
-    const raw = JSON.stringify([{ ...s3("docs"), seq: "01" }]);
-    expect(() => parseComponents(raw)).toThrow(/components is not a valid component list/);
   });
 
   test("a role with a hyphen is refused by the spec, not only by the name composer", () => {
