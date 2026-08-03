@@ -40,7 +40,7 @@ describe("one stack per app, holding many components", () => {
   // POLICY: outputs are scoped per component. Two buckets both claiming `BucketName` would
   // leave the second silently overwriting the first.
   test("POLICY: outputs are unique per component", () => {
-    for (const id of ["DocsBucketName", "UploadsBucketName", "DocsarchiveBucketName"]) {
+    for (const id of ["S3DocsBucketName", "S3UploadsBucketName", "S3DocsarchiveBucketName"]) {
       template.hasOutput(id, {});
     }
   });
@@ -51,9 +51,9 @@ describe("one stack per app, holding many components", () => {
   // first until one of them changed. This output is what makes that unnecessary, so it is a
   // contract, not a convenience, and asserting the VALUE is the point.
   test.each([
-    ["DocsResourceName", "up-s3-a231-docs-dev"],
-    ["UploadsResourceName", "up-s3-a231-uploads-dev"],
-    ["DocsarchiveResourceName", "up-s3-a231-docsarchive-dev"],
+    ["S3DocsResourceName", "up-s3-a231-docs-dev"],
+    ["S3UploadsResourceName", "up-s3-a231-uploads-dev"],
+    ["S3DocsarchiveResourceName", "up-s3-a231-docsarchive-dev"],
   ])("POLICY: %s carries the composed name for the platform to read", (id, name) => {
     template.hasOutput(id, { Value: name });
   });

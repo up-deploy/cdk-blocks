@@ -63,8 +63,8 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   // buckets, so the declared name is a SUFFIX under the component's role. Without that, two
   // components would both claim `BucketName` and the second would overwrite the first.
   test("declares the outputs the catalog promises, scoped to the component", () => {
-    template.hasOutput("DocsBucketName", {});
-    template.hasOutput("DocsBucketArn", {});
+    template.hasOutput("S3DocsBucketName", {});
+    template.hasOutput("S3DocsBucketArn", {});
   });
 
   test("the block composes the bucket name, the caller only supplies appId", () => {
