@@ -71,9 +71,10 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
     });
   });
 
-  test("POLICY: the sub claim is pinned to one repo and one branch", () => {
-    // This condition IS the security boundary. Everything else in the stack is
+  test("POLICY: the sub claim is pinned to branch ref and pull_request for one repo", () => {
+    // These conditions ARE the security boundary. Everything else in the stack is
     // plumbing; if this widens, any workflow in the org reaches the account.
+    // Two statements (main deploy + PR change-set plan), no wildcard.
     template.hasResourceProperties("AWS::IAM::Role", {
       AssumeRolePolicyDocument: {
         Statement: Match.arrayWith([
@@ -83,6 +84,14 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
                 "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
                 "token.actions.githubusercontent.com:sub":
                   "repo:an-org/a-repo:ref:refs/heads/main",
+              },
+            },
+          }),
+          Match.objectLike({
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:aud": "sts.amazonaws.com",
+                "token.actions.githubusercontent.com:sub": "repo:an-org/a-repo:pull_request",
               },
             },
           }),
@@ -173,7 +182,7 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
     });
   });
 
-  test("the subject follows the org, repo and branch it was given", () => {
+  test("the subjects follow the org, repo and branch they were given", () => {
     const other = synth({
       githubOrg: "other-org",
       githubRepo: "other-repo",
@@ -187,6 +196,14 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
               StringEquals: {
                 "token.actions.githubusercontent.com:sub":
                   "repo:other-org/other-repo:ref:refs/heads/release/v1",
+              },
+            },
+          }),
+          Match.objectLike({
+            Condition: {
+              StringEquals: {
+                "token.actions.githubusercontent.com:sub":
+                  "repo:other-org/other-repo:pull_request",
               },
             },
           }),
@@ -288,16 +305,19 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
       // condition would go unnoticed.
       const roles = imported.findResources("AWS::IAM::Role");
       expect(Object.keys(roles)).toHaveLength(1);
+      const subs: string[] = [];
       for (const role of Object.values(roles)) {
         for (const stmt of role.Properties.AssumeRolePolicyDocument.Statement) {
           expect(stmt.Condition.StringEquals["token.actions.githubusercontent.com:aud"]).toBe(
             "sts.amazonaws.com",
           );
-          expect(stmt.Condition.StringEquals["token.actions.githubusercontent.com:sub"]).toBe(
-            "repo:an-org/a-repo:ref:refs/heads/main",
-          );
+          subs.push(stmt.Condition.StringEquals["token.actions.githubusercontent.com:sub"]);
         }
       }
+      expect(subs.sort()).toEqual([
+        "repo:an-org/a-repo:pull_request",
+        "repo:an-org/a-repo:ref:refs/heads/main",
+      ]);
     });
 
     test("still emits all three outputs", () => {

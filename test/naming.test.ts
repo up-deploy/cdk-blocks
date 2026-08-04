@@ -10,27 +10,29 @@ describe("resource naming (lib/naming.ts)", () => {
     appId: "a231",
     role: "docs",
     environment: "dev",
-    issueId: "163",
   };
 
-  test("composes <companyId>-<block>-<appId>-<role>-<env>-<issueId>", () => {
-    expect(composeResourceName(base)).toBe("up-s3-a231-docs-dev-163");
+  test("composes <companyId>-<block>-<appId>-<role>-<env>", () => {
+    expect(composeResourceName(base)).toBe("up-s3-a231-docs-dev");
   });
 
   test("omits the role segment when role is absent", () => {
     const { role: _r, ...noRole } = base;
-    expect(composeResourceName(noRole)).toBe("up-s3-a231-dev-163");
+    expect(composeResourceName(noRole)).toBe("up-s3-a231-dev");
   });
 
-  // POLICY: issueId is what makes two same-block components distinct when role is shared or absent.
-  test("POLICY: a different issueId is what makes a different name", () => {
-    expect(composeResourceName({ ...base, issueId: "170" })).toBe("up-s3-a231-docs-dev-170");
+  // POLICY: role is what makes two same-block components distinct. A counter could not
+  // promise this: it would have to be read from the app's current set, and deleting a
+  // component would renumber the survivors — a rename, which is a destroy and create.
+  test("POLICY: a different role is what makes a different name", () => {
+    expect(composeResourceName({ ...base, role: "upload" })).toBe("up-s3-a231-upload-dev");
   });
 
-  // POLICY: optional role is a readability segment, not a counter. issueId is always present.
-  test("POLICY: the name always ends with the issueId", () => {
-    expect(composeResourceName(base).split("-").at(-1)).toBe("163");
-    expect(composeResourceName({ ...base, role: undefined }).split("-").at(-1)).toBe("163");
+  // POLICY: optional role is a readability segment, not a counter. The environment is
+  // always the last segment, with or without a role.
+  test("POLICY: the name always ends with the environment", () => {
+    expect(composeResourceName(base).split("-").at(-1)).toBe("dev");
+    expect(composeResourceName({ ...base, role: undefined }).split("-").at(-1)).toBe("dev");
   });
 
   // POLICY: the segments stay visually distinct. A hyphen inside a role would read as a
@@ -42,11 +44,6 @@ describe("resource naming (lib/naming.ts)", () => {
   test("an uppercase or too-long role is refused", () => {
     expect(() => composeResourceName({ ...base, role: "Docs" })).toThrow(/Invalid role/);
     expect(() => composeResourceName({ ...base, role: "toolong" })).toThrow(/Invalid role/);
-  });
-
-  test("a malformed issueId is refused", () => {
-    expect(() => composeResourceName({ ...base, issueId: "0163" })).toThrow(/Invalid issueId/);
-    expect(() => composeResourceName({ ...base, issueId: "0" })).toThrow(/Invalid issueId/);
   });
 });
 
@@ -60,7 +57,6 @@ describe("role as a tag, not only a name segment", () => {
       {
         block: "s3",
         role: "docs",
-        issueId: "163",
         blockRef: "v0.3.0",
         config: { logBucket: "up-s3-logs-dev-01" },
       },
@@ -75,7 +71,6 @@ describe("role as a tag, not only a name segment", () => {
     ["up:role", "docs"],
     ["up:block", "s3"],
     ["up:block-ref", "v0.3.0"],
-    ["up:issue-id", "163"],
   ])("POLICY: the component emits %s itself", (Key, Value) => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       Tags: Match.arrayWith([{ Key, Value }]),
@@ -86,7 +81,7 @@ describe("role as a tag, not only a name segment", () => {
   // so a component added to an app stack cannot arrive unlabelled.
   test("POLICY: component tags do not depend on the caller remembering", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-a231-docs-dev-163",
+      BucketName: "up-s3-a231-docs-dev",
     });
   });
 });

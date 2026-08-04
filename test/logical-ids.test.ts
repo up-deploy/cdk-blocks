@@ -13,22 +13,21 @@ import { AppStack } from "../app/app-stack";
  * CloudFormation, not a rename. Someone else's unrelated request would delete your data.
  *
  * It holds by construction: `AppStack` derives the construct id as
- * `${pascal(block)}${pascal(role)?}${issueId}`, and CDK's `allocateLogicalId` slices the stack
+ * `${pascal(block)}${pascal(role)?}`, and CDK's `allocateLogicalId` slices the stack
  * off the construct path.
  */
 
 const base = { companyId: "up", appId: "a231", environment: "dev" };
 
-const component = (block: string, role: string, issueId: string) => ({
+const component = (block: string, role: string) => ({
   block,
   role,
-  issueId,
   blockRef: "v0.6.0",
   config: { logBucket: "up-s3-logs-dev-01" },
 });
 
-const A = component("s3", "docs", "163");
-const B = component("s3", "upload", "170");
+const A = component("s3", "docs");
+const B = component("s3", "upload");
 
 type Component = ReturnType<typeof component>;
 type TemplateJson = { Resources?: Record<string, unknown>; Outputs?: Record<string, unknown> };
@@ -85,13 +84,13 @@ describe("logical ids are a pure function of the component that owns them", () =
     const t = tpl([A]);
 
     expect(idsOf(t)).toEqual([
-      "S3Docs163Bucket6AE95092",
-      "S3Docs163BucketPolicyDFC640A4",
+      "S3DocsBucket5C74284A",
+      "S3DocsBucketPolicyBFC20255",
     ]);
     expect(Object.keys(strip(t).Outputs).sort()).toEqual([
-      "S3Docs163BucketArn",
-      "S3Docs163BucketName",
-      "S3Docs163ResourceName",
+      "S3DocsBucketArn",
+      "S3DocsBucketName",
+      "S3DocsResourceName",
     ]);
   });
 
@@ -112,7 +111,7 @@ describe("logical ids are a pure function of the component that owns them", () =
   test("POLICY: the composed name is a pure function of the request", () => {
     for (const components of [[A], [A, B], [B, A]]) {
       const outputs = strip(tpl(components)).Outputs as Record<string, { Value: string }>;
-      expect(outputs.S3Docs163ResourceName.Value).toBe("up-s3-a231-docs-dev-163");
+      expect(outputs.S3DocsResourceName.Value).toBe("up-s3-a231-docs-dev");
     }
   });
 });
@@ -126,7 +125,7 @@ describe("logical ids are a pure function of the component that owns them", () =
 describe("the outputs quota, not the resource quota, is what an app runs out of", () => {
   // 67 components x 3 outputs each = 201, one over. Roles stay ≤6 chars.
   const many = Array.from({ length: 67 }, (_, i) =>
-    component("s3", `r${String(i).padStart(3, "0")}`, String(1000 + i)),
+    component("s3", `r${String(i).padStart(3, "0")}`),
   );
 
   test("POLICY: an app over 200 outputs is refused with the number and the remedy", () => {
