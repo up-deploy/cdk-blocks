@@ -28,15 +28,21 @@ export class AppStack extends Stack {
 
     for (const spec of props.components) {
       // The construct id is what CloudFormation logical IDs are derived from, so it must be
-      // stable and unique per component. (block, role) is exactly the tuple that already
-      // guarantees a unique resource name, so reusing it keeps the two from disagreeing.
-      const componentId = `${pascal(spec.block)}${pascal(spec.role)}`;
+      // stable and unique per component. (block, role-or-empty, issueId) is the tuple that
+      // already guarantees a unique resource name — reusing it keeps the two from disagreeing.
+      const componentId = [
+        pascal(spec.block),
+        spec.role ? pascal(spec.role) : "",
+        spec.issueId,
+      ].join("");
+      const label = spec.role ? `${spec.role}/${spec.issueId}` : spec.issueId;
 
       const { resourceName, outputs } = factoryFor(spec.block)(this, componentId, {
         companyId: props.companyId,
         appId: props.appId,
         environment: props.environment,
         role: spec.role,
+        issueId: spec.issueId,
         blockRef: spec.blockRef,
         config: spec.config,
       });
@@ -51,27 +57,23 @@ export class AppStack extends Stack {
       // a contract app teams read.
       new CfnOutput(this, `${componentId}ResourceName`, {
         value: resourceName,
-        description: `The composed name of the ${spec.block} component '${spec.role}'`,
+        description: `The composed name of the ${spec.block} component '${label}'`,
       });
 
       // The catalog declares output names per block (`outputs: [BucketName, BucketArn]`), and one
       // stack holds many components, so the declared name is a SUFFIX on the component's id:
-      // `S3DocsBucketName`, never `BucketName`, which every component would claim.
+      // `S3Docs163BucketName`, never `BucketName`, which every component would claim.
       //
-      // The prefix is `componentId` — block AND role — because it was ROLE ALONE and that was a
-      // bug waiting for a second block. `ComponentListSchema` refuses duplicates on `(block,
-      // role)`, so `{s3, main}` and `{vpc, main}` is a LEGAL app; both would then have tried to
-      // create `MainResourceName`, and CDK refuses a duplicate construct id at synth. The check
-      // guarded one key while the ids used another. They are now the same key, so they cannot
-      // disagree again.
+      // The prefix is `componentId` — block, optional role, and issueId — so two components that
+      // share a role (or both omit it) stay distinct, and so do two blocks that share a role.
+      // `ComponentListSchema` refuses duplicates on the same key the ids use.
       //
-      // Fixed while only `s3` is registered and nothing is deployed, which is the only window
-      // where renaming an output costs nothing. The platform is unaffected: `manifest-pr.yml`
-      // selects with `endswith("ResourceName")`, a suffix match that a prefix change cannot break.
+      // `manifest-pr.yml` selects with `endswith("ResourceName")`, a suffix match that a prefix
+      // change cannot break.
       for (const [name, value] of Object.entries(outputs)) {
         new CfnOutput(this, `${componentId}${name}`, {
           value,
-          description: `${name} of the ${spec.block} component '${spec.role}'`,
+          description: `${name} of the ${spec.block} component '${label}'`,
         });
       }
 
@@ -89,6 +91,7 @@ export class AppStack extends Stack {
           appId: props.appId,
           block: spec.block,
           role: spec.role,
+          issueId: spec.issueId,
           blockRef: spec.blockRef,
         },
         outputs,

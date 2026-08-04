@@ -12,26 +12,23 @@ import { AppStack } from "../app/app-stack";
  * the first one's logical ID — and a changed logical ID is a DESTROY and CREATE in
  * CloudFormation, not a rename. Someone else's unrelated request would delete your data.
  *
- * It holds today by construction: `AppStack` derives the construct id as
- * `${pascal(block)}${pascal(role)}`, and CDK's `allocateLogicalId` slices the stack off the
- * construct path. Nothing asserted it, which is the gap this file closes. It is the regression
- * test `seq` should have had.
- *
- * These tests live in their own file rather than inside app-stack.test.ts so that a red check
- * names the property that broke: logical ids moved.
+ * It holds by construction: `AppStack` derives the construct id as
+ * `${pascal(block)}${pascal(role)?}${issueId}`, and CDK's `allocateLogicalId` slices the stack
+ * off the construct path.
  */
 
 const base = { companyId: "up", appId: "a231", environment: "dev" };
 
-const component = (block: string, role: string) => ({
+const component = (block: string, role: string, issueId: string) => ({
   block,
   role,
+  issueId,
   blockRef: "v0.6.0",
   config: { logBucket: "up-s3-logs-dev-01" },
 });
 
-const A = component("s3", "docs");
-const B = component("s3", "uploads");
+const A = component("s3", "docs", "163");
+const B = component("s3", "upload", "170");
 
 type Component = ReturnType<typeof component>;
 type TemplateJson = { Resources?: Record<string, unknown>; Outputs?: Record<string, unknown> };
@@ -82,31 +79,29 @@ describe("logical ids are a pure function of the component that owns them", () =
   // `jest -u`, which makes the assertion self-healing and therefore worth nothing. If these
   // strings ever change, a deployed resource is being REPLACED — that is the finding, not a
   // stale expectation to refresh.
+  //
+  // First run: print idsOf(tpl([A])) if these fail after a deliberate id-scheme change.
   test("POLICY: the ids for a fixed request are these exact strings", () => {
     const t = tpl([A]);
 
     expect(idsOf(t)).toEqual([
-      "S3DocsBucket5C74284A",
-      "S3DocsBucketPolicyBFC20255",
+      "S3Docs163Bucket6AE95092",
+      "S3Docs163BucketPolicyDFC640A4",
     ]);
     expect(Object.keys(strip(t).Outputs).sort()).toEqual([
-      "S3DocsBucketArn",
-      "S3DocsBucketName",
-      "S3DocsResourceName",
+      "S3Docs163BucketArn",
+      "S3Docs163BucketName",
+      "S3Docs163ResourceName",
     ]);
   });
 
   // A removal is an addition read backwards, so ONE assertion covers both: it says A is
   // byte-identical whether or not B is present, which is exactly the claim a removal needs.
-  // Asserting the reverse direction as well would demand that B survive its own removal — a
-  // mistake worth recording, because it looks symmetrical and is not.
   test("POLICY: adding or removing a component leaves the others byte-identical", () => {
     expectUnchanged(tpl([A]), tpl([A, B]));
   });
 
   // THIS is the assertion that catches a position-dependent id, and it is why the file exists.
-  // The test above would stay GREEN against an index-suffixed id, because `docs` is index 0 in
-  // both [A] and [A, B]. Only reversing the order moves it.
   test("POLICY: the request is a SET — order in the manifest never reaches the template", () => {
     expectUnchanged(tpl([A]), tpl([B, A]));
     expect(strip(tpl([A, B]))).toEqual(strip(tpl([B, A])));
@@ -117,7 +112,7 @@ describe("logical ids are a pure function of the component that owns them", () =
   test("POLICY: the composed name is a pure function of the request", () => {
     for (const components of [[A], [A, B], [B, A]]) {
       const outputs = strip(tpl(components)).Outputs as Record<string, { Value: string }>;
-      expect(outputs.S3DocsResourceName.Value).toBe("up-s3-a231-docs-dev");
+      expect(outputs.S3Docs163ResourceName.Value).toBe("up-s3-a231-docs-dev-163");
     }
   });
 });
@@ -129,14 +124,11 @@ describe("logical ids are a pure function of the component that owns them", () =
  * what happens as an app team's stack accumulates components — just at the far end of it.
  */
 describe("the outputs quota, not the resource quota, is what an app runs out of", () => {
-  // 67 components x 3 outputs each = 201, one over. Deliberately expressed as the number of
-  // components rather than the number of outputs, because that is the number a human has.
+  // 67 components x 3 outputs each = 201, one over. Roles stay ≤6 chars.
   const many = Array.from({ length: 67 }, (_, i) =>
-    component("s3", `r${String(i).padStart(3, "0")}`),
+    component("s3", `r${String(i).padStart(3, "0")}`, String(1000 + i)),
   );
 
-  // POLICY: refused at synth, on the pull request, before the merge — rather than by
-  // CloudFormation at deploy, mid-update, rolling back the whole team's stack.
   test("POLICY: an app over 200 outputs is refused with the number and the remedy", () => {
     expect(() => tpl(many)).toThrow(/composes 201 stack outputs/);
     expect(() => tpl(many)).toThrow(/second app/);
