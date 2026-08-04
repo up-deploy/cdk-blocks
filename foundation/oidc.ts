@@ -44,6 +44,30 @@ const githubOrg = requireParam("GitHub Org", app.node.tryGetContext("githubOrg")
 const githubRepo = requireParam("GitHub Repo", app.node.tryGetContext("githubRepo"), /^[A-Za-z0-9._-]{1,100}$/);
 const githubBranch = requireParam("GitHub Branch", app.node.tryGetContext("githubBranch"), /^[A-Za-z0-9][A-Za-z0-9._/-]*$/);
 
+// The workflow files allowed to reach this account under the customized `sub` template,
+// comma-separated; absent means legacy-only trust. The colon exclusion matters MORE here
+// than above, because the customized subject has FOUR `key:value` fields rather than two —
+// a filename or ref carrying a `:` could forge one. `.yml`/`.yaml` is required because a
+// `job_workflow_ref` always names a file, so a value that is not one can only be a mistake.
+const trustedWorkflowsRaw = app.node.tryGetContext("trustedWorkflows");
+const trustedWorkflows = trustedWorkflowsRaw
+  ? requireParam(
+      "Trusted Workflows",
+      trustedWorkflowsRaw,
+      /^[A-Za-z0-9._-]+\.ya?ml(,[A-Za-z0-9._-]+\.ya?ml)*$/,
+    ).split(",")
+  : undefined;
+
+// A FULL ref (`refs/heads/main`, `refs/tags/v1`) — that is the form `job_workflow_ref`
+// carries, measured, not the bare branch name `uses:` is written with.
+const platformRef = app.node.tryGetContext("platformRef")
+  ? requireParam(
+      "Platform Ref",
+      app.node.tryGetContext("platformRef"),
+      /^refs\/(heads|tags)\/[A-Za-z0-9][A-Za-z0-9._/-]*$/,
+    )
+  : undefined;
+
 /**
  * Validate the bootstrap qualifier — and deliberately do not pass it anywhere.
  *
@@ -102,6 +126,8 @@ new OidcFoundationStack(app, "Foundation", {
   githubOrg,
   githubRepo,
   githubBranch,
+  trustedWorkflows,
+  platformRef,
   environment,
   existingOidcProvider,
 });
