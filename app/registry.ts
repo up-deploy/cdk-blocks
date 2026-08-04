@@ -17,7 +17,10 @@ export interface ComponentContext {
   readonly companyId: string;
   readonly appId: string;
   readonly environment: string;
-  readonly role: string;
+  /** Optional purpose hint. */
+  readonly role?: string;
+  /** Change-request issue id — part of the physical name. */
+  readonly issueId: string;
   readonly blockRef: string;
   /** The block's config blob, still unparsed — only the block knows its schema. */
   readonly config: unknown;
@@ -28,7 +31,7 @@ export interface ComponentResult {
    * The composed resource name, as a plain string.
    *
    * Returned rather than left for the platform to recompute. The platform holds every segment
-   * (`companyId`, `block`, `appId`, `role`, `env`) and could rebuild it in three lines of bash —
+   * (`companyId`, `block`, `appId`, `role?`, `env`, `issueId`) and could rebuild it in bash —
    * which would put a second copy of `lib/naming.ts`'s formula outside this repo, agreeing with
    * the first until one of them changed. The block already composed it; handing it back costs
    * nothing and leaves exactly one definition.
@@ -62,6 +65,7 @@ export const REGISTRY: Readonly<Record<string, ComponentFactory>> = {
       appId: ctx.appId,
       environment: ctx.environment,
       role: ctx.role,
+      issueId: ctx.issueId,
       blockRef: ctx.blockRef,
       cfg,
     });
