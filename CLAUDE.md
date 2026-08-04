@@ -2,7 +2,7 @@
 
 The building blocks themselves. One CDK app; one deployable block per `bin/<name>.ts`.
 
-This repo knows nothing about catalogs, environments, issue forms or requests. It receives
+This repo knows nothing about catalogs, environments or the request flow. It receives
 context values and builds a resource. Everything that decides *whether a request is allowed*
 lives in `up-platform`. Keeping that boundary is what lets this repo travel unchanged to every
 client.
@@ -206,12 +206,12 @@ The catalog entry is the block's public contract, so semver is defined against i
 | Fix behaviour with the same contract; internal refactor; docs; tests | **patch** |
 
 Two consequences worth stating. Tightening what an input accepts is **major**, because a request
-that was legal yesterday stops being legal. And because the router's accepted set must stay a
-*subset* of the block's, a stricter block deadlocks every request the router still approves —
+that was legal yesterday stops being legal. And because the catalog's accepted set must stay a
+*subset* of the block's, a stricter block deadlocks every request the catalog still approves —
 so a major bump on inputs means checking `check-catalog.sh` in the same change.
 
 ## Related
 
-- `up-platform/CLAUDE.md` — the platform side: router, catalog, policy gate, shared gotchas
+- `up-platform/CLAUDE.md` — the platform side: request workflow, catalog, policy gate, shared gotchas
 - `docs/tagging-schema.md` — the tag contract this repo implements
 - `Wiki/wiki/projects/upstood/up-platform/_status.md` — status; `decision-log.md` — the whys
