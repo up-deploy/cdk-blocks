@@ -102,32 +102,46 @@ export class OidcFoundationStack extends Stack {
     }
 
     /**
-     * The claim that decides everything.
+     * The claims that decide everything.
      *
-     * `ref:refs/heads/<branch>` and not a wildcard: the router runs on `issues: [opened]`,
-     * and issue-triggered runs always execute on the default branch, so this matches the
-     * real request path exactly. A `workflow_dispatch` run from a feature branch — which
-     * is how `try-block.sh` works — presents a different `sub` and is refused, keeping
-     * branch experiments synth-only.
+     * Two exact `sub` values, no wildcard:
+     * - `ref:refs/heads/<branch>` — deploy / execute on main (and issue workflows on default).
+     * - `pull_request` — manifest PR jobs that create the CloudFormation change set the
+     *   approver reads. Same role for v1 (least-privilege plan/execute split is later).
+     *
+     * A `workflow_dispatch` from a feature branch still presents a different `sub` and is
+     * refused, keeping branch experiments synth-only.
      *
      * Read the limit honestly: `up-platform` is private on a Free plan, where branch
      * protection is not available, so "runs on main" means "runs on whatever reached
      * main". This condition bounds which *workflow context* can reach AWS. It is not a
      * review gate, and nothing here should be read as one.
      */
-    const subject = `repo:${props.githubOrg}/${props.githubRepo}:ref:refs/heads/${props.githubBranch}`;
+    const subjectBranch = `repo:${props.githubOrg}/${props.githubRepo}:ref:refs/heads/${props.githubBranch}`;
+    const subjectPullRequest = `repo:${props.githubOrg}/${props.githubRepo}:pull_request`;
+    const subjects = [subjectBranch, subjectPullRequest];
 
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: `UppDeployRole-${props.environment}`,
       description:
         `Assumed by GitHub Actions from ${props.githubOrg}/${props.githubRepo} ` +
-        `on ${props.githubBranch}. Holds no deployment permissions of its own.`,
-      assumedBy: new iam.WebIdentityPrincipal(this.providerArn, {
-        StringEquals: {
-          [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
-          [`${GITHUB_OIDC_HOST}:sub`]: subject,
-        },
-      }),
+        `on ${props.githubBranch} or pull_request (plan change sets). Holds no deployment permissions of its own.`,
+      // Two statements (CompositePrincipal), not an array under one StringEquals: clearer
+      // audits and matches how IAM documents multi-subject OIDC trusts.
+      assumedBy: new iam.CompositePrincipal(
+        new iam.WebIdentityPrincipal(this.providerArn, {
+          StringEquals: {
+            [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
+            [`${GITHUB_OIDC_HOST}:sub`]: subjectBranch,
+          },
+        }),
+        new iam.WebIdentityPrincipal(this.providerArn, {
+          StringEquals: {
+            [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
+            [`${GITHUB_OIDC_HOST}:sub`]: subjectPullRequest,
+          },
+        }),
+      ),
       // A synth-and-deploy run is minutes. The default is an hour; there is no reason
       // for a credential to outlive the job that asked for it.
       maxSessionDuration: Duration.hours(1),
@@ -208,8 +222,8 @@ export class OidcFoundationStack extends Stack {
       description: "ARN of the GitHub Actions OIDC provider",
     });
     new CfnOutput(this, "TrustedSubject", {
-      value: subject,
-      description: "The sub claim this role accepts",
+      value: subjects.join(" | "),
+      description: "The sub claims this role accepts (branch ref and pull_request)",
     });
   }
 }
