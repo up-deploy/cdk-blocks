@@ -13,7 +13,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
     environment: "dev",
     appId: "0asd3",
     companyId: "up",
-    components: [{ block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: { logBucket: "somelogbuckeg" } }],
+    components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "somelogbuckeg" } }],
   });
   const template = Template.fromStack(stack);
 
@@ -63,13 +63,13 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   // buckets, so the declared name is a SUFFIX under the component's role. Without that, two
   // components would both claim `BucketName` and the second would overwrite the first.
   test("declares the outputs the catalog promises, scoped to the component", () => {
-    template.hasOutput("S3Docs163BucketName", {});
-    template.hasOutput("S3Docs163BucketArn", {});
+    template.hasOutput("S3DocsBucketName", {});
+    template.hasOutput("S3DocsBucketArn", {});
   });
 
   test("the block composes the bucket name, the caller only supplies appId", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-0asd3-docs-dev-163",
+      BucketName: "up-s3-0asd3-docs-dev",
     });
   });
 
@@ -112,7 +112,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
   test("access logs are prefixed with the bucket's own name", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
       LoggingConfiguration: Match.objectLike({
-        LogFilePrefix: "up-s3-0asd3-docs-dev-163/",
+        LogFilePrefix: "up-s3-0asd3-docs-dev/",
       }),
     });
   });
@@ -127,7 +127,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
           environment: "dev",
           appId: "a".repeat(60),
           companyId: "up",
-          components: [{ block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: {} }],
+          components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
         }),
     ).toThrow(/not a legal S3 name/);
   });
@@ -144,7 +144,7 @@ describe("s3 block (private, secure-by-default bucket)", () => {
       environment: "prod",
       appId: "0asd3",
       companyId: "up",
-      components: [{ block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: { retain: true } }],
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: { retain: true } }],
     });
 
     Template.fromStack(prodStack).hasResource("AWS::S3::Bucket", {
@@ -168,7 +168,7 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
-      components: [{ block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: {} }],
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
     });
     applyPlatformTags(app, {
       companyId: "up",
@@ -228,7 +228,7 @@ describe("platform tags (docs/tagging-schema.md)", () => {
       environment: "dev",
       appId: "0asd3",
       companyId: "up",
-      components: [{ block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: {} }],
+      components: [{ block: "s3", role: "docs", blockRef: "v0.1.0", config: {} }],
     });
     // No applyPlatformTags call — this is the hole the aspect exists to catch.
     Aspects.of(app).add(new RequiredTagsAspect("up"), {
@@ -266,7 +266,7 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
       // logging is mandatory now (the S1 acknowledgement was removed), so a compliant
       // bucket MUST have a destination — an empty config would legitimately fail S1.
       components: [
-        { block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
+        { block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
       ],
     });
 
@@ -292,7 +292,7 @@ describe("compliance gate (cdk-nag AwsSolutions)", () => {
       appId: "a231",
       environment: "dev",
       components: [
-        { block: "s3", role: "docs", issueId: "163", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
+        { block: "s3", role: "docs", blockRef: "v0.1.0", config: { logBucket: "up-s3-logs-dev-01" } },
       ],
     });
 

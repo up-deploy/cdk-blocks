@@ -121,9 +121,6 @@ applyComponentTags(app, {
   block: "foundation",
   blockRef,
   role: FOUNDATION_ROLE,
-  // Not a portal request — sentinel so the required issue-id tag is present on the
-  // foundation itself. App components always carry their real GitHub issue number.
-  issueId: "1",
 });
 
 cdk.Aspects.of(app).add(new RequiredTagsAspect(companyId), {

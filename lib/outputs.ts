@@ -6,8 +6,13 @@ import { applyComponentTags } from "./platform-tags";
 /**
  * How one project hands a live value to another.
  *
- *   /<companyId>/<environment>/<appId>/<block>/<issueId>/<OutputName>
- *   /up         /dev          /netw   /vpc    /163     /VpcId
+ *   /<companyId>/<environment>/<appId>/<block>[/<role>]/<OutputName>
+ *   /up         /dev          /netw   /vpc             /VpcId
+ *   /up         /dev          /0011   /s3     /docs    /BucketArn
+ *
+ * The role segment appears when the component has one — it is the same (block,
+ * role-or-empty) key that makes the resource name unique, so the path inherits that
+ * uniqueness rather than inventing a second one.
  *
  * NOT an inventory. SSM holds current values and nothing else — no history, no intent, no
  * record of what exists. Those are answered by git (the manifests), CloudFormation (the
@@ -34,13 +39,13 @@ export interface PublishContext {
   readonly appId: string;
   readonly block: string;
   readonly role?: string;
-  readonly issueId: string;
   readonly blockRef: string;
 }
 
 /** The path a consumer references. Exported because the platform composes the same string. */
 export function composeParameterPath(ctx: PublishContext, outputName: string): string {
-  return `/${ctx.companyId}/${ctx.environment}/${ctx.appId}/${ctx.block}/${ctx.issueId}/${outputName}`;
+  const roleSegment = ctx.role !== undefined && ctx.role !== "" ? `/${ctx.role}` : "";
+  return `/${ctx.companyId}/${ctx.environment}/${ctx.appId}/${ctx.block}${roleSegment}/${outputName}`;
 }
 
 /**
@@ -76,7 +81,7 @@ export function publishComponentOutputs(
   //
   // This is NOT cosmetic. RequiredTagsAspect asserts the component-tier keys on every
   // CfnResource, and a parameter created directly in the stack's scope carries none of them
-  // — the stack has no one block, ref or issue-id to inherit from. Without this the first
+  // — the stack has no one block or ref to inherit from. Without this the first
   // block that ever publishes anything fails synth with "Missing required tag(s)", a long
   // way from the line that caused it.
   const published = new Construct(scope, id);
@@ -85,10 +90,9 @@ export function publishComponentOutputs(
     block: ctx.block,
     blockRef: ctx.blockRef,
     role: ctx.role,
-    issueId: ctx.issueId,
   });
 
-  const label = ctx.role ? `${ctx.role}/${ctx.issueId}` : ctx.issueId;
+  const label = ctx.role ?? ctx.block;
   for (const name of publishes) {
     const param = new StringParameter(published, name, {
       parameterName: composeParameterPath(ctx, name),
