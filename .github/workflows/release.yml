@@ -95,7 +95,14 @@ jobs:
                 git config user.email "41898282+github-actions[bot]@users.noreply.github.com"
                 git checkout -b "release/$NEW_TAG"
                 git add package.json package-lock.json
-                git commit -m "chore: bump version to $NEW_VERSION"
+                # If the feature already bumped package.json to $NEW_VERSION, there is nothing
+                # to commit — still push the branch so the release PR can open. A hard fail
+                # here left v0.8.0 untagged while up-platform already pinned it.
+                if git diff --cached --quiet; then
+                  echo "package.json already at $NEW_VERSION — no bump commit needed"
+                else
+                  git commit -m "chore: bump version to $NEW_VERSION"
+                fi
                 git push origin "release/$NEW_TAG"
 
             - name: what to do next
