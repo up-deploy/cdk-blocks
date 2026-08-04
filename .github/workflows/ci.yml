@@ -106,7 +106,7 @@ jobs:
                 npx cdk synth -a "npx ts-node app/app.ts" -o cdk.out/app \
                   -c account=111111111111 -c region=eu-west-1 -c companyId=up \
                   -c appId=ci00 -c env=dev -c tags='{}' \
-                  -c components='[{"block":"s3","role":"cidocs","blockRef":"ci","config":{"retain":false,"logBucket":"ci-log-bucket"}},{"block":"s3","role":"ciups","blockRef":"ci","config":{"retain":true,"logBucket":"ci-log-bucket"}}]' \
+                  -c components='[{"block":"s3","role":"cidocs","issueId":"1","blockRef":"ci","config":{"retain":false,"logBucket":"ci-log-bucket"}},{"block":"s3","role":"ciups","issueId":"2","blockRef":"ci","config":{"retain":true,"logBucket":"ci-log-bucket"}}]' \
                   1>/dev/null 2>synth-app.log
 
             # The foundation takes no appId and no blockConfig: it is not a block, it is

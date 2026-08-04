@@ -4,9 +4,10 @@ import { AppStack } from "../app/app-stack";
 import { parseComponents } from "../app/component-spec";
 
 const base = { companyId: "up", appId: "a231", environment: "dev" };
-const s3 = (role: string) => ({
+const s3 = (role: string, issueId: string) => ({
   block: "s3",
   role,
+  issueId,
   blockRef: "v0.3.0",
   config: { logBucket: "up-s3-logs-dev-01" },
 });
@@ -16,7 +17,7 @@ describe("one stack per app, holding many components", () => {
   const stack = new AppStack(app, "App", {
     ...base,
     stackName: "up-a231-dev",
-    components: [s3("docs"), s3("uploads"), s3("docsarchive")],
+    components: [s3("docs", "163"), s3("upload", "170"), s3("arch", "171")],
   });
   const template = Template.fromStack(stack);
 
@@ -27,11 +28,11 @@ describe("one stack per app, holding many components", () => {
     expect(stack.stackName).toBe("up-a231-dev");
   });
 
-  test("each component composes its own name from its role", () => {
+  test("each component composes its own name from role and issueId", () => {
     for (const name of [
-      "up-s3-a231-docs-dev",
-      "up-s3-a231-uploads-dev",
-      "up-s3-a231-docsarchive-dev",
+      "up-s3-a231-docs-dev-163",
+      "up-s3-a231-upload-dev-170",
+      "up-s3-a231-arch-dev-171",
     ]) {
       template.hasResourceProperties("AWS::S3::Bucket", { BucketName: name });
     }
@@ -40,28 +41,24 @@ describe("one stack per app, holding many components", () => {
   // POLICY: outputs are scoped per component. Two buckets both claiming `BucketName` would
   // leave the second silently overwriting the first.
   test("POLICY: outputs are unique per component", () => {
-    for (const id of ["S3DocsBucketName", "S3UploadsBucketName", "S3DocsarchiveBucketName"]) {
+    for (const id of ["S3Docs163BucketName", "S3Upload170BucketName", "S3Arch171BucketName"]) {
       template.hasOutput(id, {});
     }
   });
 
   // POLICY: the composed name is emitted so the PLATFORM can read it rather than recompute it.
-  // The platform holds every segment and could rebuild the name in three lines of bash, which
-  // would put a second copy of lib/naming.ts's formula outside this repo — agreeing with the
-  // first until one of them changed. This output is what makes that unnecessary, so it is a
-  // contract, not a convenience, and asserting the VALUE is the point.
   test.each([
-    ["S3DocsResourceName", "up-s3-a231-docs-dev"],
-    ["S3UploadsResourceName", "up-s3-a231-uploads-dev"],
-    ["S3DocsarchiveResourceName", "up-s3-a231-docsarchive-dev"],
+    ["S3Docs163ResourceName", "up-s3-a231-docs-dev-163"],
+    ["S3Upload170ResourceName", "up-s3-a231-upload-dev-170"],
+    ["S3Arch171ResourceName", "up-s3-a231-arch-dev-171"],
   ])("POLICY: %s carries the composed name for the platform to read", (id, name) => {
     template.hasOutput(id, { Value: name });
   });
 
   test("each bucket carries its own role tag", () => {
     template.hasResourceProperties("AWS::S3::Bucket", {
-      BucketName: "up-s3-a231-uploads-dev",
-      Tags: Match.arrayWith([{ Key: "up:role", Value: "uploads" }]),
+      BucketName: "up-s3-a231-upload-dev-170",
+      Tags: Match.arrayWith([{ Key: "up:role", Value: "upload" }]),
     });
   });
 });
@@ -73,21 +70,23 @@ describe("the component list is validated before anything is built", () => {
       () =>
         new AppStack(app, "App", {
           ...base,
-          components: [{ block: "dynamodb", role: "sessions", blockRef: "v0.3.0" }],
+          components: [{ block: "dynamodb", role: "sess", issueId: "1", blockRef: "v0.3.0" }],
         }),
     ).toThrow(/Unknown block 'dynamodb'.*builds: s3/s);
   });
 
-  // POLICY: (block, role) is what guarantees a unique resource name, so a duplicate is refused
-  // at parse time rather than surfacing as a duplicate-name error from AWS at deploy. The fix
-  // is a role that says what the second one is FOR — the platform does not number around it.
-  test("POLICY: two components with the same block and role are refused", () => {
-    const raw = JSON.stringify([s3("docs"), s3("docs")]);
-    expect(() => parseComponents(raw)).toThrow(/Duplicate component 's3\/docs'/);
+  // POLICY: (block, role-or-empty, issueId) guarantees a unique resource name.
+  test("POLICY: two components with the same block, role and issueId are refused", () => {
+    const raw = JSON.stringify([s3("docs", "163"), s3("docs", "163")]);
+    expect(() => parseComponents(raw)).toThrow(/Duplicate component 's3\/docs\/163'/);
+  });
+
+  test("two components with the same block and role but different issueIds are allowed", () => {
+    expect(() => parseComponents(JSON.stringify([s3("docs", "163"), s3("docs", "170")]))).not.toThrow();
   });
 
   test("a role with a hyphen is refused by the spec, not only by the name composer", () => {
-    const raw = JSON.stringify([s3("user-docs")]);
+    const raw = JSON.stringify([s3("user-d", "1")]);
     expect(() => parseComponents(raw)).toThrow(/no hyphens/);
   });
 
@@ -97,7 +96,7 @@ describe("the component list is validated before anything is built", () => {
   });
 
   test("an unknown key in a component is refused", () => {
-    const raw = JSON.stringify([{ ...s3("docs"), instance: "01" }]);
+    const raw = JSON.stringify([{ ...s3("docs", "163"), instance: "01" }]);
     expect(() => parseComponents(raw)).toThrow(/components is not a valid component list/);
   });
 

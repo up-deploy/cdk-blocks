@@ -13,18 +13,19 @@ import { IConstruct } from "constructs";
  * Keys the platform emits itself. Required on every taggable resource, never supplied by config.
  *
  * They arrive in TWO TIERS, because one stack belongs to an app team and holds components from
- * different blocks at different versions. `block`, `block-ref` and `role` describe a single
+ * different blocks at different versions. `block`, `block-ref` and `issue-id` describe a single
  * component and cannot be applied at app scope: the stack has no one block and no one ref.
+ * `role` is optional on the component tier.
  */
 const APP_KEYS = ["managed", "app-id", "env"] as const;
-const COMPONENT_KEYS = ["block", "block-ref", "role"] as const;
+const COMPONENT_KEYS = ["block", "block-ref", "issue-id"] as const;
 const PLATFORM_KEYS = [...APP_KEYS, ...COMPONENT_KEYS] as const;
 
 /**
  * Keys config may never supply. The platform keys, plus `companyid`: it IS the prefix, so emitting
  * it as a key too would be redundant and confusing. Every other casing of it fails KEY_PATTERN.
  */
-const RESERVED_KEYS: ReadonlySet<string> = new Set<string>([...PLATFORM_KEYS, "companyid"]);
+const RESERVED_KEYS: ReadonlySet<string> = new Set<string>([...PLATFORM_KEYS, "companyid", "role"]);
 
 /**
  * Bare, lowercase, hyphen-separated. Tag keys are case sensitive, so `CostCenter`, `costCenter` and
@@ -74,8 +75,10 @@ export interface ComponentTagOptions {
   readonly block: string;
   /** The catalog's source.ref. Records which version of the block built the resource. */
   readonly blockRef: string;
-  /** What this component is for, e.g. `docs`. Also the name segment. */
-  readonly role: string;
+  /** Optional purpose hint, e.g. `docs`. Emitted as a tag when set. */
+  readonly role?: string;
+  /** Change-request issue id — required for traceability. */
+  readonly issueId: string;
 }
 
 /**
@@ -121,8 +124,8 @@ export function applyPlatformTags(scope: IConstruct, opts: PlatformTagOptions): 
  * Applies the COMPONENT-tier tags to everything under one component.
  *
  * A construct calls this on itself, so a component cannot be added to an app stack and forget
- * to say which block built it. `role` is emitted as a tag as well as a name segment: the name
- * is for humans, the tag is what Cost Explorer and AWS Config can filter on.
+ * to say which block built it. `issue-id` traces the resource to the portal request; `role` is
+ * emitted when the requester set one (name segment + cost filter).
  */
 export function applyComponentTags(scope: IConstruct, opts: ComponentTagOptions): void {
   const ns = (key: string) => `${opts.companyId}:${key}`;
@@ -130,7 +133,10 @@ export function applyComponentTags(scope: IConstruct, opts: ComponentTagOptions)
 
   tags.add(ns("block"), opts.block);
   tags.add(ns("block-ref"), opts.blockRef);
-  tags.add(ns("role"), opts.role);
+  tags.add(ns("issue-id"), opts.issueId);
+  if (opts.role !== undefined && opts.role !== "") {
+    tags.add(ns("role"), opts.role);
+  }
 }
 
 /**

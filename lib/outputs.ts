@@ -6,8 +6,8 @@ import { applyComponentTags } from "./platform-tags";
 /**
  * How one project hands a live value to another.
  *
- *   /<companyId>/<environment>/<appId>/<block>/<role>/<OutputName>
- *   /up         /dev          /netw   /vpc    /main  /VpcId
+ *   /<companyId>/<environment>/<appId>/<block>/<issueId>/<OutputName>
+ *   /up         /dev          /netw   /vpc    /163     /VpcId
  *
  * NOT an inventory. SSM holds current values and nothing else — no history, no intent, no
  * record of what exists. Those are answered by git (the manifests), CloudFormation (the
@@ -33,13 +33,14 @@ export interface PublishContext {
   readonly environment: string;
   readonly appId: string;
   readonly block: string;
-  readonly role: string;
+  readonly role?: string;
+  readonly issueId: string;
   readonly blockRef: string;
 }
 
 /** The path a consumer references. Exported because the platform composes the same string. */
 export function composeParameterPath(ctx: PublishContext, outputName: string): string {
-  return `/${ctx.companyId}/${ctx.environment}/${ctx.appId}/${ctx.block}/${ctx.role}/${outputName}`;
+  return `/${ctx.companyId}/${ctx.environment}/${ctx.appId}/${ctx.block}/${ctx.issueId}/${outputName}`;
 }
 
 /**
@@ -75,22 +76,24 @@ export function publishComponentOutputs(
   //
   // This is NOT cosmetic. RequiredTagsAspect asserts the component-tier keys on every
   // CfnResource, and a parameter created directly in the stack's scope carries none of them
-  // — the stack has no one block, ref or role to inherit from. Without this the first block
-  // that ever publishes anything fails synth with "Missing required tag(s)", a long way from
-  // the line that caused it.
+  // — the stack has no one block, ref or issue-id to inherit from. Without this the first
+  // block that ever publishes anything fails synth with "Missing required tag(s)", a long
+  // way from the line that caused it.
   const published = new Construct(scope, id);
   applyComponentTags(published, {
     companyId: ctx.companyId,
     block: ctx.block,
     blockRef: ctx.blockRef,
     role: ctx.role,
+    issueId: ctx.issueId,
   });
 
+  const label = ctx.role ? `${ctx.role}/${ctx.issueId}` : ctx.issueId;
   for (const name of publishes) {
     const param = new StringParameter(published, name, {
       parameterName: composeParameterPath(ctx, name),
       stringValue: outputs[name],
-      description: `${name} of ${ctx.appId}'s ${ctx.block} component '${ctx.role}' (${ctx.environment})`,
+      description: `${name} of ${ctx.appId}'s ${ctx.block} component '${label}' (${ctx.environment})`,
     });
 
     // Standard tier explicitly. The advanced tier costs money per parameter per month and
