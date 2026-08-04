@@ -1,5 +1,5 @@
 import { z } from "zod";
-import { ISSUE_ID_PATTERN, ROLE_PATTERN } from "../lib/naming";
+import { ROLE_PATTERN } from "../lib/naming";
 
 /**
  * What one app asks for: a list of components.
@@ -13,18 +13,13 @@ export const ComponentSpecSchema = z
     /** Catalog entry name. Must exist in the registry, or synth fails. */
     block: z.string().regex(/^[a-z][a-z0-9-]*$/, "must be a lowercase catalog name"),
     /**
-     * Optional purpose hint (name segment + tag). Uniqueness is carried by issueId —
-     * see lib/naming.ts.
+     * Optional purpose hint (name segment + tag). It is the ONLY discriminator between two
+     * components of the same block — see lib/naming.ts.
      */
     role: z
       .string()
       .regex(ROLE_PATTERN, "must be lowercase, no hyphens, 1-6 characters")
       .optional(),
-    /**
-     * GitHub issue number of the change request that added this component. Immutable.
-     * Part of the physical name and the construct id.
-     */
-    issueId: z.string().regex(ISSUE_ID_PATTERN, "must be a GitHub issue number (no leading zeros)"),
     /** The catalog's source.ref for this block. Per component: two blocks pin independently. */
     blockRef: z.string().min(1),
     /**
@@ -48,19 +43,19 @@ export const ComponentSpecSchema = z
 export const ComponentListSchema = z
   .array(ComponentSpecSchema)
   .min(1, "an app must request at least one component")
-  // Two components with the same (block, role-or-empty, issueId) would compose the same name.
+  // Two components with the same (block, role-or-empty) would compose the same name.
   .superRefine((components, ctx) => {
     const seen = new Set<string>();
     for (const c of components) {
       const roleKey = c.role ?? "";
-      const key = `${c.block}/${roleKey}/${c.issueId}`;
+      const key = `${c.block}/${roleKey}`;
       if (seen.has(key)) {
         ctx.addIssue({
           code: z.ZodIssueCode.custom,
           message:
-            `Duplicate component '${key}' — two components with the same block, role and ` +
-            `issueId compose the same resource name. Each change request must add a distinct ` +
-            `component (a new issueId), or give one an optional role that says what it is for.`,
+            `Duplicate component '${key}' — two components with the same block and role ` +
+            `compose the same resource name. Give one a role that says what it is for, ` +
+            `e.g. 'uploads' or 'archive'.`,
         });
       }
       seen.add(key);
