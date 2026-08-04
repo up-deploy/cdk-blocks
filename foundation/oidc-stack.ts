@@ -23,10 +23,28 @@ const STS_AUDIENCE = "sts.amazonaws.com";
 export interface OidcFoundationStackProps extends StackProps {
   /** The GitHub org or user that owns the platform repo. */
   readonly githubOrg: string;
-  /** The platform repo — the only repo whose workflows may reach this account. */
+  /** The platform repo — the repo that OWNS the workflows allowed to reach this account. */
   readonly githubRepo: string;
-  /** The branch whose runs may assume the role. */
+  /**
+   * LEGACY. The branch whose runs may assume the role, under GitHub's DEFAULT `sub`
+   * template. Removed once every caller presents a `job_workflow_ref` subject — see
+   * `trustedWorkflows`.
+   */
   readonly githubBranch: string;
+  /**
+   * The workflow FILES whose runs may assume this role, under a CUSTOMIZED `sub` template
+   * (`include_claim_keys: [repository_owner, job_workflow_ref]`). Bare filenames, e.g.
+   * `["app-plan.yml", "app-apply.yml"]`. One IAM statement each.
+   *
+   * Absent or empty means legacy-only trust, which is what makes adding this an additive,
+   * inspectable no-op: nothing presents these subjects until the template is flipped.
+   */
+  readonly trustedWorkflows?: readonly string[];
+  /**
+   * The ref those workflow files must be called at, as a full ref
+   * (`refs/heads/main`, `refs/tags/v1`). Defaults to `refs/heads/<githubBranch>`.
+   */
+  readonly platformRef?: string;
   /** The environment ring this account is. Names the role. */
   readonly environment: string;
 
@@ -104,43 +122,87 @@ export class OidcFoundationStack extends Stack {
     /**
      * The claims that decide everything.
      *
-     * Two exact `sub` values, no wildcard:
-     * - `ref:refs/heads/<branch>` — deploy / execute on main (and issue workflows on default).
-     * - `pull_request` — manifest PR jobs that create the CloudFormation change set the
-     *   approver reads. Same role for v1 (least-privilege plan/execute split is later).
+     * Two SHAPES of subject live here at once, on purpose, because a `sub` template is
+     * flipped instantaneously and org-wide while an IAM change is a deploy. Additive
+     * first, subtractive last: the new subjects are added while nothing presents them,
+     * the template is flipped, and only then are the legacy two removed.
      *
-     * A `workflow_dispatch` from a feature branch still presents a different `sub` and is
-     * refused, keeping branch experiments synth-only.
+     * ── LEGACY: the subject names a PLACE ────────────────────────────────────────────
      *
-     * Read the limit honestly: `up-platform` is private on a Free plan, where branch
-     * protection is not available, so "runs on main" means "runs on whatever reached
-     * main". This condition bounds which *workflow context* can reach AWS. It is not a
-     * review gate, and nothing here should be read as one.
+     * - `ref:refs/heads/<branch>` — execute on main.
+     * - `pull_request` — the jobs that create the change set an approver reads.
+     *
+     * Both are repo-wide, and that is a hole rather than a nuance: `…:pull_request` is
+     * presented by ANY `pull_request`-triggered workflow in the repo, INCLUDING a workflow
+     * file added by that same pull request, on its first run, before a human reads it.
+     * Whoever can open a PR can reach the bootstrap chain, whose execution policy is
+     * `AdministratorAccess`. It is the pwn-request pattern wearing a quieter costume:
+     * nobody flags `pull_request` (as opposed to `pull_request_target`) because the code is
+     * "only" the PR's own — but the OIDC subject does not make that distinction.
+     *
+     * ── NEW: the subject names CODE ──────────────────────────────────────────────────
+     *
+     * Under a customized `sub` template (`include_claim_keys:
+     * [repository_owner, job_workflow_ref]`) the subject stops naming the calling repo and
+     * names the workflow FILE instead:
+     *
+     *   repository_owner:<org>:job_workflow_ref:<org>/<repo>/.github/workflows/<file>@<ref>
+     *
+     * MEASURED, not inferred — one run, two jobs, same repository
+     * (`up-deploy/probe-app` run 30949963157, 2026-08-04):
+     *
+     *   the repo's OWN workflow  → …job_workflow_ref:up-deploy/probe-app/…/probe.yml@…
+     *   the PLATFORM's reusable  → …job_workflow_ref:up-deploy/up-platform/…/probe-reusable.yml@…
+     *
+     * Two different subjects from one repository in one run. Pinning the second admits the
+     * platform's workflow and refuses a workflow the calling team wrote, which is the whole
+     * security argument and the thing the legacy shape cannot express.
+     *
+     * Note what does NOT appear: the calling repository. So this admits any repo in the org
+     * WITHOUT a wildcard and without an IAM statement per app — and it is a different claim
+     * from the org-wide `repo:<org>/*` subject rejected on 2026-07-29, which widened *who*
+     * rather than pinning *what code*.
+     *
+     * The honest limit still stands and is unchanged by any of this: the platform repo has
+     * no branch protection on a Free plan, so "at `refs/heads/main`" means "whatever reached
+     * main". This bounds which workflow context can reach AWS. It is not a review gate.
      */
     const subjectBranch = `repo:${props.githubOrg}/${props.githubRepo}:ref:refs/heads/${props.githubBranch}`;
     const subjectPullRequest = `repo:${props.githubOrg}/${props.githubRepo}:pull_request`;
-    const subjects = [subjectBranch, subjectPullRequest];
+
+    const platformRef = props.platformRef ?? `refs/heads/${props.githubBranch}`;
+    const workflowSubjects = (props.trustedWorkflows ?? []).map(
+      (workflow) =>
+        `repository_owner:${props.githubOrg}` +
+        `:job_workflow_ref:${props.githubOrg}/${props.githubRepo}` +
+        `/.github/workflows/${workflow}@${platformRef}`,
+    );
+
+    const subjects = [subjectBranch, subjectPullRequest, ...workflowSubjects];
 
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: `UppDeployRole-${props.environment}`,
       description:
         `Assumed by GitHub Actions from ${props.githubOrg}/${props.githubRepo} ` +
-        `on ${props.githubBranch} or pull_request (plan change sets). Holds no deployment permissions of its own.`,
-      // Two statements (CompositePrincipal), not an array under one StringEquals: clearer
-      // audits and matches how IAM documents multi-subject OIDC trusts.
+        `on ${props.githubBranch} or pull_request (plan change sets)` +
+        (workflowSubjects.length
+          ? `, and by ${props.trustedWorkflows?.join(", ")} at ${platformRef} from any repo in the org`
+          : "") +
+        `. Holds no deployment permissions of its own.`,
+      // One statement per subject (CompositePrincipal), not an array under one
+      // StringEquals: clearer audits, and it matches how IAM documents multi-subject OIDC
+      // trusts. It also means the statement COUNT is an assertable fact — a workflow that
+      // quietly inherits access shows up as an extra statement, and a test says so.
       assumedBy: new iam.CompositePrincipal(
-        new iam.WebIdentityPrincipal(this.providerArn, {
-          StringEquals: {
-            [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
-            [`${GITHUB_OIDC_HOST}:sub`]: subjectBranch,
-          },
-        }),
-        new iam.WebIdentityPrincipal(this.providerArn, {
-          StringEquals: {
-            [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
-            [`${GITHUB_OIDC_HOST}:sub`]: subjectPullRequest,
-          },
-        }),
+        ...subjects.map(
+          (sub) =>
+            new iam.WebIdentityPrincipal(this.providerArn, {
+              StringEquals: {
+                [`${GITHUB_OIDC_HOST}:aud`]: STS_AUDIENCE,
+                [`${GITHUB_OIDC_HOST}:sub`]: sub,
+              },
+            }),
+        ),
       ),
       // A synth-and-deploy run is minutes. The default is an hour; there is no reason
       // for a credential to outlive the job that asked for it.
@@ -223,7 +285,9 @@ export class OidcFoundationStack extends Stack {
     });
     new CfnOutput(this, "TrustedSubject", {
       value: subjects.join(" | "),
-      description: "The sub claims this role accepts (branch ref and pull_request)",
+      description:
+        "Every sub claim this role accepts. Read it back after a deploy: this output is the " +
+        "only place the trust is legible without parsing the policy document.",
     });
   }
 }

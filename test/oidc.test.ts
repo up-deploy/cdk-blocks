@@ -11,9 +11,21 @@ interface Overrides {
   githubOrg?: string;
   githubRepo?: string;
   githubBranch?: string;
+  trustedWorkflows?: readonly string[];
+  platformRef?: string;
   environment?: string;
   bootstrapQualifier?: string;
   existingOidcProvider?: boolean;
+}
+
+/** Every `sub` the synthesized role accepts, in statement order. */
+function subjectsOf(template: Template): string[] {
+  const roles = template.findResources("AWS::IAM::Role");
+  return Object.values(roles).flatMap((role: any) =>
+    role.Properties.AssumeRolePolicyDocument.Statement.map(
+      (s: any) => s.Condition?.StringEquals?.["token.actions.githubusercontent.com:sub"],
+    ),
+  );
 }
 
 /**
@@ -32,6 +44,8 @@ function synth(overrides: Overrides = {}) {
     githubOrg: overrides.githubOrg ?? "an-org",
     githubRepo: overrides.githubRepo ?? "a-repo",
     githubBranch: overrides.githubBranch ?? "main",
+    trustedWorkflows: overrides.trustedWorkflows,
+    platformRef: overrides.platformRef,
     environment: overrides.environment ?? "dev",
     existingOidcProvider: overrides.existingOidcProvider,
   });
@@ -122,6 +136,83 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
         expect(sub).not.toContain("*");
       }
     }
+  });
+
+  test("POLICY: with no trustedWorkflows the trust is legacy-only", () => {
+    // Adding the prop must be an additive no-op until it is used. If this ever grows a
+    // third statement by default, the Foundation redeploy stops being inspectable.
+    expect(subjectsOf(template)).toEqual([
+      "repo:an-org/a-repo:ref:refs/heads/main",
+      "repo:an-org/a-repo:pull_request",
+    ]);
+  });
+
+  test("POLICY: the sub pins the workflow FILE, not the repository", () => {
+    // The exact shape measured in up-deploy/probe-app run 30949963157 (2026-08-04).
+    // These strings ARE the security boundary: the calling repository does not appear in
+    // them, which is what admits any repo in the org without a wildcard — and what
+    // refuses a workflow that repo wrote itself, since its job_workflow_ref names its own
+    // file. If this test is ever "fixed" by adding the repo back, read the probe first.
+    const subs = subjectsOf(
+      synth({ trustedWorkflows: ["app-plan.yml", "app-apply.yml"] }),
+    );
+    expect(subs).toEqual([
+      "repo:an-org/a-repo:ref:refs/heads/main",
+      "repo:an-org/a-repo:pull_request",
+      "repository_owner:an-org:job_workflow_ref:an-org/a-repo/.github/workflows/app-plan.yml@refs/heads/main",
+      "repository_owner:an-org:job_workflow_ref:an-org/a-repo/.github/workflows/app-apply.yml@refs/heads/main",
+    ]);
+  });
+
+  test("POLICY: one trust statement per trusted workflow, and no other", () => {
+    // A workflow that gains access without a line in `trustedWorkflows` is the failure
+    // this counts. Asserted as a count so it fails even if the extra statement is
+    // well-formed and looks plausible.
+    for (const workflows of [[], ["app-plan.yml"], ["app-plan.yml", "app-apply.yml"]]) {
+      const subs = subjectsOf(synth({ trustedWorkflows: workflows }));
+      expect(subs).toHaveLength(2 + workflows.length);
+    }
+  });
+
+  test("POLICY: no workflow subject is prefixed `repo:`", () => {
+    // The two shapes must not be confusable. A `repo:`-prefixed subject names a PLACE and
+    // is repo-wide; a `job_workflow_ref` subject names CODE. Anything that mixed the two
+    // would silently reintroduce the pull_request hole this change exists to close.
+    const subs = subjectsOf(synth({ trustedWorkflows: ["app-plan.yml"] }));
+    const workflowSubs = subs.filter((s) => s.includes("job_workflow_ref:"));
+    expect(workflowSubs).toHaveLength(1);
+    for (const sub of workflowSubs) {
+      expect(sub.startsWith("repo:")).toBe(false);
+      expect(sub.startsWith("repository_owner:")).toBe(true);
+    }
+  });
+
+  test("platformRef overrides the branch the workflows must be called at", () => {
+    // A tag pins the platform's own code the way the catalog pins a block. It is not used
+    // yet — promoting platform code would then be a Foundation redeploy — but the trust
+    // policy is where that choice lives, so it must be expressible.
+    const subs = subjectsOf(
+      synth({ trustedWorkflows: ["app-apply.yml"], platformRef: "refs/tags/v1" }),
+    );
+    expect(subs).toContain(
+      "repository_owner:an-org:job_workflow_ref:an-org/a-repo/.github/workflows/app-apply.yml@refs/tags/v1",
+    );
+    // The legacy pair is unaffected — platformRef is not the branch.
+    expect(subs).toContain("repo:an-org/a-repo:ref:refs/heads/main");
+  });
+
+  test("the workflow subjects follow the org and repo they were given", () => {
+    const subs = subjectsOf(
+      synth({
+        githubOrg: "other-org",
+        githubRepo: "other-repo",
+        githubBranch: "release/v1",
+        trustedWorkflows: ["app-plan.yml"],
+      }),
+    );
+    expect(subs).toContain(
+      "repository_owner:other-org:job_workflow_ref:other-org/other-repo/.github/workflows/app-plan.yml@refs/heads/release/v1",
+    );
   });
 
   test("POLICY: the role may only assume the CDK bootstrap roles", () => {
