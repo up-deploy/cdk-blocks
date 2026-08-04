@@ -4,30 +4,32 @@ CDK building blocks for [up-platform](https://github.com/up-deploy/up-platform) 
 
 ## How consumption works
 
-This repo is never installed as a package. The platform's build workflow checks out this repo at the exact tag recorded in the platform catalog (`source.ref`) and synthesizes one entry:
+This repo is never installed as a package. The platform's build workflow checks out this repo at the exact tag recorded in the platform catalog (`source.ref`) and synthesizes the app's whole component list through the ONE entrypoint, `app/app.ts`:
 
 ```bash
-npx cdk synth -a "npx ts-node bin/<block>.ts" \
+npx cdk synth -a "npx ts-node app/app.ts" \
   -c account=<12 digits> -c region=<aws-region> -c companyId=<id> \
-  -c appId=<4 chars> -c env=<ring> -c blockRef=<tag> \
-  -c blockConfig='<json from config/environments/<ring>.yaml>' -c tags='<json>'
+  -c appId=<4 chars> -c env=<ring> -c tags='<json>' \
+  -c components='[{"block":"s3","role":"docs","blockRef":"<tag>","config":{…}}]'
 ```
+
+What gets built is decided by the component list and the registry (`app/registry.ts`), not by a filename: a block is buildable because it is registered there. Each component carries its own `blockRef` (the catalog pin) and its own `config` blob (from `config/environments/<ring>.yaml`).
 
 A new tag here changes nothing on the platform until a catalog PR in `up-platform` moves the pin.
 
 ## Blocks
 
-| Block | Entry | What it builds |
-|-------|-------|-----------------|
-| [`s3`](blocks/s3/) | `bin/s3.ts` | Private, secure-by-default S3 bucket (public access blocked, SSL-only, encrypted, versioned, access-logged) |
+| Block | Registered as | What it builds |
+|-------|---------------|-----------------|
+| [`s3`](blocks/s3/) | `s3` in `app/registry.ts` | Private, secure-by-default S3 bucket (public access blocked, SSL-only, encrypted, versioned, access-logged) |
 
 ## The block contract
 
 Every block in this repo must:
 
-1. **Compose its own resource name** — `<companyId>-<block>-<appId>-<env>-01`. The caller supplies `appId` only. The `-01` ordinal is a fixed literal today: one instance per (companyId, appId, env).
-2. **Tag everything** — the five platform keys (`<companyId>:managed|app-id|env|block|block-ref`) plus the environment's `tags:` map, all namespaced by `lib/platform-tags.ts`; coverage re-checked at synth by `RequiredTagsAspect`.
-3. **Validate its inputs** — the entry rejects malformed context values before synth, and `blockConfig` is validated against the block's zod schema (`.strict()` — unknown keys are errors).
+1. **Compose its own resource name** — `<companyId>-<block>-<appId>[-<role>]-<env>`. The caller supplies `appId`; the request carries the optional `role`. `role` is the ONLY discriminator between two components of the same block, so there is no counter — a name is a pure function of the request and never depends on what else the app holds.
+2. **Tag everything** — the platform keys (app tier `<companyId>:managed|app-id|env`; component tier `<companyId>:block|block-ref`, plus `role` when set) and the environment's `tags:` map, all namespaced by `lib/platform-tags.ts`; coverage re-checked at synth by `RequiredTagsAspect`.
+3. **Validate its inputs** — the app entrypoint rejects malformed context values before synth (`requireParam`: the pattern passed in IS the contract), the component list is validated against a strict schema (unknown keys, including a legacy `issueId`, are errors), and each component's `config` blob is validated against the block's own zod schema (`.strict()`).
 4. **Declare its outputs** — `CfnOutput`s matching the catalog entry's `outputs` list; a test asserts they exist.
 5. **Fence its policy** — class-3 controls (public access, SSL, encryption, versioning, ownership) are hardcoded with no override prop, and guarded by `POLICY:` tests.
 6. **Prove itself** — `npx tsc --noEmit && npm test` green, and the entrypoint must print `compliance: pack=…` so the platform's scan can verify cdk-nag ran.
@@ -37,9 +39,9 @@ Every block in this repo must:
 ```bash
 npm install
 npx tsc --noEmit && npm test          # what CI runs
-npm run synth:s3 -- -c account=111111111111 -c region=eu-west-1 -c companyId=up \
-  -c appId=demo -c env=dev -c blockRef=dev -c tags='{}' \
-  -c blockConfig='{"retain":false,"logBucket":"some-log-bucket"}'
+npm run synth -- -c account=111111111111 -c region=eu-west-1 -c companyId=up \
+  -c appId=demo -c env=dev -c tags='{}' \
+  -c components='[{"block":"s3","blockRef":"dev","config":{"retain":false,"logBucket":"some-log-bucket"}}]'
 ```
 
 No AWS credentials needed — everything up to and including the compliance verdict happens at synth.
