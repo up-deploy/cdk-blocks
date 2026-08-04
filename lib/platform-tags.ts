@@ -13,12 +13,12 @@ import { IConstruct } from "constructs";
  * Keys the platform emits itself. Required on every taggable resource, never supplied by config.
  *
  * They arrive in TWO TIERS, because one stack belongs to an app team and holds components from
- * different blocks at different versions. `block`, `block-ref` and `issue-id` describe a single
+ * different blocks at different versions. `block` and `block-ref` describe a single
  * component and cannot be applied at app scope: the stack has no one block and no one ref.
  * `role` is optional on the component tier.
  */
 const APP_KEYS = ["managed", "app-id", "env"] as const;
-const COMPONENT_KEYS = ["block", "block-ref", "issue-id"] as const;
+const COMPONENT_KEYS = ["block", "block-ref"] as const;
 const PLATFORM_KEYS = [...APP_KEYS, ...COMPONENT_KEYS] as const;
 
 /**
@@ -77,8 +77,6 @@ export interface ComponentTagOptions {
   readonly blockRef: string;
   /** Optional purpose hint, e.g. `docs`. Emitted as a tag when set. */
   readonly role?: string;
-  /** Change-request issue id — required for traceability. */
-  readonly issueId: string;
 }
 
 /**
@@ -124,8 +122,8 @@ export function applyPlatformTags(scope: IConstruct, opts: PlatformTagOptions): 
  * Applies the COMPONENT-tier tags to everything under one component.
  *
  * A construct calls this on itself, so a component cannot be added to an app stack and forget
- * to say which block built it. `issue-id` traces the resource to the portal request; `role` is
- * emitted when the requester set one (name segment + cost filter).
+ * to say which block built it. `role` is emitted when the requester set one
+ * (name segment + cost filter).
  */
 export function applyComponentTags(scope: IConstruct, opts: ComponentTagOptions): void {
   const ns = (key: string) => `${opts.companyId}:${key}`;
@@ -133,7 +131,6 @@ export function applyComponentTags(scope: IConstruct, opts: ComponentTagOptions)
 
   tags.add(ns("block"), opts.block);
   tags.add(ns("block-ref"), opts.blockRef);
-  tags.add(ns("issue-id"), opts.issueId);
   if (opts.role !== undefined && opts.role !== "") {
     tags.add(ns("role"), opts.role);
   }

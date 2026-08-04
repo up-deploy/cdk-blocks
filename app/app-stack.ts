@@ -28,21 +28,16 @@ export class AppStack extends Stack {
 
     for (const spec of props.components) {
       // The construct id is what CloudFormation logical IDs are derived from, so it must be
-      // stable and unique per component. (block, role-or-empty, issueId) is the tuple that
+      // stable and unique per component. (block, role-or-empty) is the tuple that
       // already guarantees a unique resource name — reusing it keeps the two from disagreeing.
-      const componentId = [
-        pascal(spec.block),
-        spec.role ? pascal(spec.role) : "",
-        spec.issueId,
-      ].join("");
-      const label = spec.role ? `${spec.role}/${spec.issueId}` : spec.issueId;
+      const componentId = [pascal(spec.block), spec.role ? pascal(spec.role) : ""].join("");
+      const label = spec.role ?? spec.block;
 
       const { resourceName, outputs } = factoryFor(spec.block)(this, componentId, {
         companyId: props.companyId,
         appId: props.appId,
         environment: props.environment,
         role: spec.role,
-        issueId: spec.issueId,
         blockRef: spec.blockRef,
         config: spec.config,
       });
@@ -62,11 +57,10 @@ export class AppStack extends Stack {
 
       // The catalog declares output names per block (`outputs: [BucketName, BucketArn]`), and one
       // stack holds many components, so the declared name is a SUFFIX on the component's id:
-      // `S3Docs163BucketName`, never `BucketName`, which every component would claim.
+      // `S3DocsBucketName`, never `BucketName`, which every component would claim.
       //
-      // The prefix is `componentId` — block, optional role, and issueId — so two components that
-      // share a role (or both omit it) stay distinct, and so do two blocks that share a role.
-      // `ComponentListSchema` refuses duplicates on the same key the ids use.
+      // The prefix is `componentId` — block and optional role — so two blocks that share a
+      // role stay distinct. `ComponentListSchema` refuses duplicates on the same key the ids use.
       //
       // `manifest-pr.yml` selects with `endswith("ResourceName")`, a suffix match that a prefix
       // change cannot break.
@@ -91,7 +85,6 @@ export class AppStack extends Stack {
           appId: props.appId,
           block: spec.block,
           role: spec.role,
-          issueId: spec.issueId,
           blockRef: spec.blockRef,
         },
         outputs,
