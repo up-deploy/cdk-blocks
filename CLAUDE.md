@@ -176,19 +176,15 @@ Verify the tag means what you think: `git show v0.3.0:bin/<name>.ts`.
 
 ### 4. Publish to the platform
 
-In `up-platform`, on a branch:
+Full procedure: `up-platform/docs/blocks.md`. In short — **two PRs in up-platform**:
 
-```bash
-# bump source.ref in catalog/blocks/<name>.yaml, then prove it BEFORE committing
-GITHUB_OUTPUT=/tmp/out ./scripts/check-catalog.sh <block> dev <appId>
-```
-
-Open a PR. **That PR is the promotion event** — its diff is one line, and its git history is the
-audit log of what the platform offered and when.
-
-For a *new* block, the same PR also adds `catalog/blocks/<name>.yaml` and a matching option in
-`.github/ISSUE_TEMPLATE/building-block-issue-form.yml`. Those two are hand-synced today, which is
-the known menu-drift gap (roadmap C1).
+1. The catalog PR: bump `source.ref` in `catalog/blocks/<name>.yaml` (for a new block, add the
+   file), **move every block's pin to the same tag** (an app mixing pins is refused), add any
+   `blocks.<name>:` env config, and add the block to `test/fixtures/dev.yaml`. Prove before
+   committing: `GITHUB_OUTPUT=/tmp/out ./scripts/check-catalog.sh <block> dev 9999`.
+2. The pin-bump PR: update the platform-action SHA in `app-plan.yml`/`app-apply.yml` to the
+   catalog PR's merge commit. Requests resolve against the pinned tree — until this lands,
+   the change does not exist to them.
 
 There is one pin per block, shared by dev and prod. That is deliberate: a per-environment pin
 would mean prod runs different *code* from dev, breaking "prod differs by values, not code".
