@@ -13,6 +13,7 @@ interface Overrides {
   githubBranch?: string;
   trustedWorkflows?: readonly string[];
   platformRef?: string;
+  legacySubjects?: boolean;
   environment?: string;
   bootstrapQualifier?: string;
   existingOidcProvider?: boolean;
@@ -46,6 +47,7 @@ function synth(overrides: Overrides = {}) {
     githubBranch: overrides.githubBranch ?? "main",
     trustedWorkflows: overrides.trustedWorkflows,
     platformRef: overrides.platformRef,
+    legacySubjects: overrides.legacySubjects,
     environment: overrides.environment ?? "dev",
     existingOidcProvider: overrides.existingOidcProvider,
   });
@@ -185,6 +187,25 @@ describe("oidc foundation (GitHub Actions trust into an AWS account)", () => {
       expect(sub.startsWith("repo:")).toBe(false);
       expect(sub.startsWith("repository_owner:")).toBe(true);
     }
+  });
+
+  test("POLICY: legacySubjects=false leaves ONLY the workflow subjects", () => {
+    // The end state of the cutover: the role that no pull_request event can reach. The
+    // place-shaped subjects are gone, and with them the hole where a PR adding a workflow
+    // file could assume the role on its own first run.
+    const subs = subjectsOf(
+      synth({ trustedWorkflows: ["app-plan.yml", "app-apply.yml"], legacySubjects: false }),
+    );
+    expect(subs).toEqual([
+      "repository_owner:an-org:job_workflow_ref:an-org/a-repo/.github/workflows/app-plan.yml@refs/heads/main",
+      "repository_owner:an-org:job_workflow_ref:an-org/a-repo/.github/workflows/app-apply.yml@refs/heads/main",
+    ]);
+  });
+
+  test("POLICY: legacySubjects=false with no trustedWorkflows refuses to synthesize", () => {
+    // An empty trust is not "locked down" — it is a role nothing can ever assume,
+    // discovered at the next request. Refused at synth, where it costs nothing.
+    expect(() => synth({ legacySubjects: false })).toThrow(/no subject at all/);
   });
 
   test("platformRef overrides the branch the workflows must be called at", () => {

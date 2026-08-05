@@ -105,6 +105,22 @@ const existingOidcProvider =
     /^(true|false)$/,
   ) === "true";
 
+// Same two-spelling rule as existingOidcProvider: context values are strings, and
+// `"false"` is truthy. Absent means true — the legacy subjects are dropped by an explicit
+// decision, never by omission.
+const legacySubjects =
+  requireParam(
+    "Legacy Subjects",
+    app.node.tryGetContext("legacySubjects") ?? "true",
+    /^(true|false)$/,
+  ) === "true";
+
+if (!legacySubjects && (!trustedWorkflows || trustedWorkflows.length === 0)) {
+  throw new Error(
+    "legacySubjects=false with no trustedWorkflows would deploy a role nothing can assume. Name the workflows first.",
+  );
+}
+
 const extra = parseExtraTags(app.node.tryGetContext("tags"));
 
 /**
@@ -128,6 +144,7 @@ new OidcFoundationStack(app, "Foundation", {
   githubBranch,
   trustedWorkflows,
   platformRef,
+  legacySubjects,
   environment,
   existingOidcProvider,
 });
