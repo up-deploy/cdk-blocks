@@ -45,6 +45,20 @@ export interface OidcFoundationStackProps extends StackProps {
    * (`refs/heads/main`, `refs/tags/v1`). Defaults to `refs/heads/<githubBranch>`.
    */
   readonly platformRef?: string;
+  /**
+   * Whether the role still trusts the two PLACE-shaped subjects
+   * (`ref:refs/heads/<branch>` and `pull_request`).
+   *
+   * Default true, because dropping them is the SUBTRACTIVE half of a cutover whose rule
+   * is additive first, subtractive last: they must survive until every caller presents a
+   * `job_workflow_ref` subject — measured, not assumed, because a repo-level
+   * `use_default: true` silently overrides the org template (found 2026-08-05, in
+   * CloudTrail, after the org flip changed nothing).
+   *
+   * Setting this false with no `trustedWorkflows` would synthesize a role nothing can
+   * assume; the entrypoint refuses the combination.
+   */
+  readonly legacySubjects?: boolean;
   /** The environment ring this account is. Names the role. */
   readonly environment: string;
 
@@ -169,6 +183,7 @@ export class OidcFoundationStack extends Stack {
      */
     const subjectBranch = `repo:${props.githubOrg}/${props.githubRepo}:ref:refs/heads/${props.githubBranch}`;
     const subjectPullRequest = `repo:${props.githubOrg}/${props.githubRepo}:pull_request`;
+    const legacySubjects = props.legacySubjects ?? true;
 
     const platformRef = props.platformRef ?? `refs/heads/${props.githubBranch}`;
     const workflowSubjects = (props.trustedWorkflows ?? []).map(
@@ -178,7 +193,19 @@ export class OidcFoundationStack extends Stack {
         `/.github/workflows/${workflow}@${platformRef}`,
     );
 
-    const subjects = [subjectBranch, subjectPullRequest, ...workflowSubjects];
+    const subjects = [
+      ...(legacySubjects ? [subjectBranch, subjectPullRequest] : []),
+      ...workflowSubjects,
+    ];
+
+    // Belt to the entrypoint's braces: a role with an empty trust is not "locked down",
+    // it is a deploy that leaves CI unable to deploy anything ever again, discovered at
+    // the next request. Refused here too in case a future caller skips the entrypoint.
+    if (subjects.length === 0) {
+      throw new Error(
+        "OidcFoundationStack: legacySubjects=false with no trustedWorkflows leaves no subject at all — nothing could ever assume the role.",
+      );
+    }
 
     this.deployRole = new iam.Role(this, "DeployRole", {
       roleName: `UppDeployRole-${props.environment}`,
